@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient, InvoiceStatus } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
+import { checkPermission } from '../middleware/permissions';
 import { parsePagination, getPaginationMeta } from '../utils/helpers';
 
 const router = Router();
@@ -11,6 +12,7 @@ const prisma = new PrismaClient();
 router.get(
   '/',
   authenticate,
+  checkPermission('payments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { page, limit, skip } = parsePagination(
@@ -76,6 +78,7 @@ router.get(
 router.get(
   '/today',
   authenticate,
+  checkPermission('payments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const today = new Date();
@@ -141,6 +144,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  checkPermission('payments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -193,6 +197,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  checkPermission('payments', 'create'),
   [
     body('invoiceId').notEmpty().withMessage('Invoice ID is required'),
     body('amount').isFloat({ min: 0.01 }).withMessage('Valid amount is required'),
@@ -321,6 +326,7 @@ router.post(
 router.delete(
   '/:id',
   authenticate,
+  checkPermission('payments', 'delete'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

@@ -43,7 +43,7 @@ import { DatePicker, MobileTimePicker } from '@mui/x-date-pickers';
 import { useForm, Controller } from 'react-hook-form';
 import { format, addDays, startOfWeek, endOfWeek, eachDayOfInterval, isSameDay, parseISO } from 'date-fns';
 import toast from 'react-hot-toast';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { appointmentsApi, patientsApi, usersApi } from '../services/api';
 import { Appointment, Patient, User, AppointmentType, AppointmentStatus } from '../types';
 import LoadingSpinner from '../components/common/LoadingSpinner';
@@ -52,6 +52,9 @@ import EmptyState from '../components/common/EmptyState';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import ToothSelector from '../components/dental-chart/ToothSelector';
 import { sendAppointmentReminder } from '../utils/whatsapp';
+import PatientRegistrationModal from '../components/workflow/PatientRegistrationModal';
+import { usePermissions } from '../hooks/usePermissions';
+import { useAuth } from '../context/AuthContext';
 
 interface AppointmentFormData {
   patientId: string;
@@ -67,6 +70,9 @@ interface AppointmentFormData {
 
 const Appointments: React.FC = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const permissions = usePermissions();
   const [appointments, setAppointments] = useState<Appointment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [dentists, setDentists] = useState<User[]>([]);
@@ -80,6 +86,7 @@ const Appointments: React.FC = () => {
   const [detailDialogOpen, setDetailDialogOpen] = useState(false);
   const [selectedAppointmentDetail, setSelectedAppointmentDetail] = useState<Appointment | null>(null);
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([]);
+  const [patientRegistrationModalOpen, setPatientRegistrationModalOpen] = useState(false);
 
   const { control, register, handleSubmit, reset, setValue, formState: { errors } } = useForm<AppointmentFormData>();
 
@@ -115,6 +122,23 @@ const Appointments: React.FC = () => {
   useEffect(() => {
     fetchData();
   }, [fetchData]);
+
+  // Handle query parameters for pre-filling patient
+  useEffect(() => {
+    const action = searchParams.get('action');
+    const patientId = searchParams.get('patientId');
+    
+    if (action === 'new' && patientId) {
+      const patient = patients.find(p => p.id === patientId);
+      if (patient) {
+        setSelectedPatient(patient);
+        handleOpenDialog(undefined, new Date());
+        setValue('patientId', patientId);
+        // Clear URL params
+        navigate('/appointments', { replace: true });
+      }
+    }
+  }, [searchParams, patients, navigate, setValue]);
 
   const handleOpenDialog = (appointment?: Appointment, date?: Date) => {
     if (appointment) {
@@ -158,6 +182,18 @@ const Appointments: React.FC = () => {
     setSelectedPatient(null);
     setSelectedTeeth([]);
     reset();
+  };
+
+  const handlePatientRegistered = (patient: Patient) => {
+    // Add patient to the list if not already present
+    if (!patients.find(p => p.id === patient.id)) {
+      setPatients([...patients, patient]);
+    }
+    // Auto-select the newly registered patient
+    setSelectedPatient(patient);
+    setValue('patientId', patient.id);
+    // Refresh patients list
+    fetchData();
   };
 
   const parseTimeString = (timeStr: string): Date => {
@@ -287,13 +323,15 @@ const Appointments: React.FC = () => {
             Schedule and manage patient appointments
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-        >
-          New Appointment
-        </Button>
+          {permissions.appointments.canCreate && (
+            <Button
+              variant="contained"
+              startIcon={<AddIcon />}
+              onClick={() => handleOpenDialog()}
+            >
+              New Appointment
+            </Button>
+          )}
       </Box>
 
       {/* Calendar Controls */}
@@ -553,18 +591,20 @@ const Appointments: React.FC = () => {
                         <EditIcon fontSize="small" />
                       </IconButton>
                     </Tooltip>
-                    <Tooltip title="Cancel">
-                      <IconButton 
-                        size="small" 
-                        color="error" 
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleDelete(apt.id);
-                        }}
-                      >
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
+                    {permissions.appointments.canDelete && (
+                      <Tooltip title="Cancel">
+                        <IconButton 
+                          size="small" 
+                          color="error" 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDelete(apt.id);
+                          }}
+                        >
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    )}
                   </ListItemSecondaryAction>
                 </ListItem>
               ))
@@ -783,30 +823,41 @@ const Appointments: React.FC = () => {
           <DialogContent dividers>
             <Grid container spacing={2}>
               <Grid item xs={12}>
-                <Controller
-                  name="patientId"
-                  control={control}
-                  rules={{ required: 'Patient is required' }}
-                  render={({ field }) => (
-                    <Autocomplete
-                      options={patients}
-                      getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.patientId})`}
-                      value={selectedPatient}
-                      onChange={(_, newValue) => {
-                        setSelectedPatient(newValue);
-                        field.onChange(newValue?.id || '');
-                      }}
-                      renderInput={(params) => (
-                        <TextField
-                          {...params}
-                          label="Select Patient"
-                          error={!!errors.patientId}
-                          helperText={errors.patientId?.message}
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Controller
+                      name="patientId"
+                      control={control}
+                      rules={{ required: 'Patient is required' }}
+                      render={({ field }) => (
+                        <Autocomplete
+                          options={patients}
+                          getOptionLabel={(option) => `${option.firstName} ${option.lastName} (${option.patientId})`}
+                          value={selectedPatient}
+                          onChange={(_, newValue) => {
+                            setSelectedPatient(newValue);
+                            field.onChange(newValue?.id || '');
+                          }}
+                          renderInput={(params) => (
+                            <TextField
+                              {...params}
+                              label="Select Patient"
+                              error={!!errors.patientId}
+                              helperText={errors.patientId?.message}
+                            />
+                          )}
                         />
                       )}
                     />
-                  )}
-                />
+                  </Box>
+                  <Button
+                    variant="outlined"
+                    onClick={() => setPatientRegistrationModalOpen(true)}
+                    sx={{ mt: 0.5, whiteSpace: 'nowrap' }}
+                  >
+                    Quick Register
+                  </Button>
+                </Box>
               </Grid>
               <Grid item xs={12}>
                 <TextField
@@ -941,6 +992,13 @@ const Appointments: React.FC = () => {
           </DialogActions>
         </form>
       </Dialog>
+
+      {/* Patient Registration Modal */}
+      <PatientRegistrationModal
+        open={patientRegistrationModalOpen}
+        onClose={() => setPatientRegistrationModalOpen(false)}
+        onPatientRegistered={handlePatientRegistered}
+      />
     </Box>
   );
 };

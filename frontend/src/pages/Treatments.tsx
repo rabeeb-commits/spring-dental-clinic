@@ -51,6 +51,8 @@ import toast from 'react-hot-toast';
 import { treatmentsApi, patientsApi, usersApi, procedureTypesApi } from '../services/api';
 import { Treatment, Patient, User, ProcedureType, TreatmentStatus } from '../types';
 import { format } from 'date-fns';
+import { usePermissions } from '../hooks/usePermissions';
+import { useAuth } from '../context/AuthContext';
 
 interface TreatmentFormData {
   patientId: string;
@@ -67,6 +69,8 @@ interface TreatmentFormData {
 
 const Treatments: React.FC = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const permissions = usePermissions();
   const [treatments, setTreatments] = useState<Treatment[]>([]);
   const [patients, setPatients] = useState<Patient[]>([]);
   const [dentists, setDentists] = useState<User[]>([]);
@@ -253,9 +257,11 @@ const Treatments: React.FC = () => {
             Manage treatment plans and procedures
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenDialog}>
-          New Treatment
-        </Button>
+        {permissions.treatments.canCreate && (
+          <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenDialog}>
+            New Treatment
+          </Button>
+        )}
       </Box>
 
       {/* Filters */}
@@ -393,14 +399,16 @@ const Treatments: React.FC = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Create Invoice">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleGoToBilling(treatment)}
-                        >
-                          <BillingIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                      {permissions.invoices.canCreate && (
+                        <Tooltip title="Create Invoice">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleGoToBilling(treatment)}
+                          >
+                            <BillingIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip title="Actions">
                         <IconButton
                           size="small"
@@ -438,18 +446,22 @@ const Treatments: React.FC = () => {
         anchorOrigin={{ horizontal: 'right', vertical: 'bottom' }}
         PaperProps={{ sx: { minWidth: 200, boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' } }}
       >
-        <MenuItem onClick={() => selectedTreatment && handleOpenEditDialog(selectedTreatment)}>
-          <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>Edit Treatment</ListItemText>
-        </MenuItem>
-        <MenuItem onClick={() => selectedTreatment && handleGoToBilling(selectedTreatment)}>
-          <ListItemIcon><BillingIcon fontSize="small" /></ListItemIcon>
-          <ListItemText>Create Invoice</ListItemText>
-        </MenuItem>
-        <Divider />
+        {permissions.treatments.canUpdate && (
+          <MenuItem onClick={() => selectedTreatment && handleOpenEditDialog(selectedTreatment)}>
+            <ListItemIcon><EditIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Edit Treatment</ListItemText>
+          </MenuItem>
+        )}
+        {permissions.invoices.canCreate && (
+          <MenuItem onClick={() => selectedTreatment && handleGoToBilling(selectedTreatment)}>
+            <ListItemIcon><BillingIcon fontSize="small" /></ListItemIcon>
+            <ListItemText>Create Invoice</ListItemText>
+          </MenuItem>
+        )}
+        {(permissions.treatments.canUpdate || permissions.treatments.canDelete) && <Divider />}
         
         {/* Status Change Options */}
-        {selectedTreatment?.status !== 'PLANNED' && (
+        {permissions.treatments.canUpdate && selectedTreatment?.status !== 'PLANNED' && (
           <MenuItem onClick={() => {
             if (selectedTreatment) {
               handleStatusChange(selectedTreatment.id, 'PLANNED');
@@ -461,7 +473,7 @@ const Treatments: React.FC = () => {
           </MenuItem>
         )}
         
-        {selectedTreatment?.status !== 'IN_PROGRESS' && (
+        {permissions.treatments.canUpdate && selectedTreatment?.status !== 'IN_PROGRESS' && (
           <MenuItem onClick={() => {
             if (selectedTreatment) {
               handleStatusChange(selectedTreatment.id, 'IN_PROGRESS');
@@ -473,7 +485,7 @@ const Treatments: React.FC = () => {
           </MenuItem>
         )}
         
-        {selectedTreatment?.status !== 'COMPLETED' && (
+        {permissions.treatments.canUpdate && selectedTreatment?.status !== 'COMPLETED' && (
           <MenuItem onClick={() => {
             if (selectedTreatment) {
               handleStatusChange(selectedTreatment.id, 'COMPLETED');
@@ -485,7 +497,7 @@ const Treatments: React.FC = () => {
           </MenuItem>
         )}
         
-        {selectedTreatment?.status !== 'CANCELLED' && (
+        {permissions.treatments.canDelete && selectedTreatment?.status !== 'CANCELLED' && (
           <>
             <Divider />
             <MenuItem onClick={() => {

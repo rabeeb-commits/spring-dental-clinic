@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
+import { checkPermission } from '../middleware/permissions';
 import { parsePagination, getPaginationMeta } from '../utils/helpers';
 
 const router = Router();
@@ -11,6 +12,7 @@ const prisma = new PrismaClient();
 router.get(
   '/',
   authenticate,
+  checkPermission('appointments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { page, limit, skip } = parsePagination(
@@ -133,6 +135,7 @@ router.get(
 router.get(
   '/today',
   authenticate,
+  checkPermission('appointments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { dentistId } = req.query;
@@ -187,6 +190,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  checkPermission('appointments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -243,6 +247,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  checkPermission('appointments', 'create'),
   [
     body('patientId').notEmpty().withMessage('Patient ID is required'),
     body('dentistId').notEmpty().withMessage('Dentist ID is required'),
@@ -380,6 +385,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
+  checkPermission('appointments', 'update'),
   [
     body('appointmentDate').optional().isISO8601().withMessage('Valid appointment date is required'),
     body('startTime').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid start time is required'),
@@ -453,6 +459,7 @@ router.put(
 router.put(
   '/:id/status',
   authenticate,
+  checkPermission('appointments', 'update'),
   [
     body('status')
       .isIn(['CONFIRMED', 'RESCHEDULED', 'CANCELLED', 'COMPLETED', 'NO_SHOW'])
@@ -489,6 +496,7 @@ router.put(
 router.delete(
   '/:id',
   authenticate,
+  checkPermission('appointments', 'delete'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

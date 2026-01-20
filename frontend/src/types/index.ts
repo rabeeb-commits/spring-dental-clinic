@@ -1,6 +1,24 @@
 // User types
 export type UserRole = 'ADMIN' | 'DENTIST' | 'RECEPTIONIST' | 'ASSISTANT';
 
+export type PermissionModule =
+  | 'patients'
+  | 'appointments'
+  | 'treatments'
+  | 'invoices'
+  | 'payments'
+  | 'reports'
+  | 'users'
+  | 'settings';
+
+export interface Permission {
+  module: PermissionModule;
+  canCreate: boolean;
+  canRead: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+}
+
 export interface User {
   id: string;
   email: string;
@@ -288,6 +306,39 @@ export interface LoginCredentials {
 export interface AuthResponse {
   user: User;
   token: string;
+}
+
+// Invoice Template types
+export interface InvoiceTemplate {
+  id: string;
+  name: string;
+  isDefault: boolean;
+  logoPosition: 'left' | 'center' | 'right';
+  showClinicName: boolean;
+  showAddress: boolean;
+  showContact: boolean;
+  templateStyle: 'classic' | 'modern' | 'minimal';
+  itemTableStyle: 'bordered' | 'striped' | 'minimal';
+  totalsPosition: 'left' | 'right' | 'center';
+  paymentTerms?: string;
+  showDueDate: boolean;
+  showPaymentMethods: boolean;
+  lateFeeEnabled: boolean;
+  lateFeePercent?: number;
+  lateFeeDays?: number;
+  taxLabel: string;
+  taxType: 'percentage' | 'fixed';
+  showTaxBreakdown: boolean;
+  taxId?: string;
+  footerText?: string;
+  showSignature: boolean;
+  signatureLabel?: string;
+  primaryColor: string;
+  headerBgColor?: string;
+  footerBgColor?: string;
+  fontFamily: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 

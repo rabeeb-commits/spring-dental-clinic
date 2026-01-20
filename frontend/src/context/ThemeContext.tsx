@@ -193,11 +193,60 @@ interface ThemeProviderProps {
 export const ThemeProvider: React.FC<ThemeProviderProps> = ({ children }) => {
   const [mode, setModeState] = useState<ThemeMode>(() => {
     const saved = localStorage.getItem('themeMode');
-    return (saved as ThemeMode) || 'light';
+    const initialMode = (saved as ThemeMode) || 'light';
+    // Set initial data attribute and CSS variables
+    if (typeof document !== 'undefined') {
+      document.documentElement.setAttribute('data-theme', initialMode);
+      const root = document.documentElement;
+      if (initialMode === 'dark') {
+        root.style.setProperty('--bg-primary', '#0f172a');
+        root.style.setProperty('--bg-secondary', '#1e293b');
+        root.style.setProperty('--text-primary', '#f1f5f9');
+        root.style.setProperty('--text-secondary', '#94a3b8');
+        root.style.setProperty('--scrollbar-track', '#1e293b');
+        root.style.setProperty('--scrollbar-thumb', '#475569');
+        root.style.setProperty('--scrollbar-thumb-hover', '#64748b');
+        root.style.setProperty('--divider-color', 'rgba(148, 163, 184, 0.15)');
+      } else {
+        root.style.setProperty('--bg-primary', '#f8fafc');
+        root.style.setProperty('--bg-secondary', '#ffffff');
+        root.style.setProperty('--text-primary', '#0f172a');
+        root.style.setProperty('--text-secondary', '#64748b');
+        root.style.setProperty('--scrollbar-track', '#f1f5f9');
+        root.style.setProperty('--scrollbar-thumb', '#94a3b8');
+        root.style.setProperty('--scrollbar-thumb-hover', '#64748b');
+        root.style.setProperty('--divider-color', 'rgba(0, 0, 0, 0.08)');
+      }
+    }
+    return initialMode;
   });
 
   useEffect(() => {
     localStorage.setItem('themeMode', mode);
+    // Update document data attribute for CSS variable support
+    document.documentElement.setAttribute('data-theme', mode);
+    
+    // Update CSS custom properties
+    const root = document.documentElement;
+    if (mode === 'dark') {
+      root.style.setProperty('--bg-primary', '#0f172a');
+      root.style.setProperty('--bg-secondary', '#1e293b');
+      root.style.setProperty('--text-primary', '#f1f5f9');
+      root.style.setProperty('--text-secondary', '#94a3b8');
+      root.style.setProperty('--scrollbar-track', '#1e293b');
+      root.style.setProperty('--scrollbar-thumb', '#475569');
+      root.style.setProperty('--scrollbar-thumb-hover', '#64748b');
+      root.style.setProperty('--divider-color', 'rgba(148, 163, 184, 0.15)');
+    } else {
+      root.style.setProperty('--bg-primary', '#f8fafc');
+      root.style.setProperty('--bg-secondary', '#ffffff');
+      root.style.setProperty('--text-primary', '#0f172a');
+      root.style.setProperty('--text-secondary', '#64748b');
+      root.style.setProperty('--scrollbar-track', '#f1f5f9');
+      root.style.setProperty('--scrollbar-thumb', '#94a3b8');
+      root.style.setProperty('--scrollbar-thumb-hover', '#64748b');
+      root.style.setProperty('--divider-color', 'rgba(0, 0, 0, 0.08)');
+    }
   }, [mode]);
 
   const toggleMode = () => {

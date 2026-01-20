@@ -7,6 +7,7 @@ interface ClinicSettings {
   address?: string;
   openTime?: string;
   closeTime?: string;
+  upiId?: string;
 }
 
 interface ClinicContextType {
@@ -21,6 +22,7 @@ const defaultSettings: ClinicSettings = {
   address: '',
   openTime: '09:00',
   closeTime: '18:00',
+  upiId: '',
 };
 
 const ClinicContext = createContext<ClinicContextType | undefined>(undefined);

@@ -1,7 +1,8 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
-import { authenticate, isDentistOrAdmin } from '../middleware/auth';
+import { authenticate } from '../middleware/auth';
+import { checkPermission } from '../middleware/permissions';
 import { parsePagination, getPaginationMeta } from '../utils/helpers';
 
 const router = Router();
@@ -11,6 +12,7 @@ const prisma = new PrismaClient();
 router.get(
   '/',
   authenticate,
+  checkPermission('treatments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { page, limit, skip } = parsePagination(
@@ -88,6 +90,7 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  checkPermission('treatments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { patientId } = req.params;
@@ -134,6 +137,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  checkPermission('treatments', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -189,7 +193,7 @@ router.get(
 router.post(
   '/',
   authenticate,
-  isDentistOrAdmin,
+  checkPermission('treatments', 'create'),
   [
     body('patientId').notEmpty().withMessage('Patient ID is required'),
     body('title').trim().notEmpty().withMessage('Treatment title is required'),
@@ -293,7 +297,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
-  isDentistOrAdmin,
+  checkPermission('treatments', 'update'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -349,7 +353,7 @@ router.put(
 router.put(
   '/:id/status',
   authenticate,
-  isDentistOrAdmin,
+  checkPermission('treatments', 'update'),
   [
     body('status')
       .isIn(['PLANNED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'])
@@ -394,7 +398,7 @@ router.put(
 router.post(
   '/:id/procedures',
   authenticate,
-  isDentistOrAdmin,
+  checkPermission('treatments', 'update'),
   [
     body('procedureTypeId').notEmpty().withMessage('Procedure type ID is required'),
   ],
@@ -461,7 +465,7 @@ router.post(
 router.put(
   '/procedures/:procedureId',
   authenticate,
-  isDentistOrAdmin,
+  checkPermission('treatments', 'update'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { procedureId } = req.params;
@@ -513,7 +517,7 @@ router.put(
 router.delete(
   '/procedures/:procedureId',
   authenticate,
-  isDentistOrAdmin,
+  checkPermission('treatments', 'update'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { procedureId } = req.params;
@@ -539,6 +543,65 @@ router.delete(
       res.json({
         success: true,
         message: 'Procedure removed successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// DELETE /api/treatments/:id - Delete treatment
+router.delete(
+  '/:id',
+  authenticate,
+  checkPermission('treatments', 'delete'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const treatment = await prisma.treatment.findUnique({
+        where: { id },
+        include: {
+          invoice: true,
+        },
+      });
+
+      if (!treatment) {
+        res.status(404).json({
+          success: false,
+          message: 'Treatment not found',
+        });
+        return;
+      }
+
+      // Check if treatment has associated invoice
+      if (treatment.invoice) {
+        res.status(400).json({
+          success: false,
+          message: 'Cannot delete treatment with associated invoice. Cancel invoice first.',
+        });
+        return;
+      }
+
+      // Delete treatment (cascade will delete procedures)
+      await prisma.treatment.delete({
+        where: { id },
+      });
+
+      // Log activity
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'DELETE',
+          entityType: 'Treatment',
+          entityId: id,
+          description: `Deleted treatment: ${treatment.title}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'Treatment deleted successfully',
       });
     } catch (error) {
       next(error);

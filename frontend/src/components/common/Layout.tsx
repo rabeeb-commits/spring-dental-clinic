@@ -86,9 +86,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   // Enable keyboard shortcuts
   useContextualShortcuts();
 
-  // Enable keyboard shortcuts
-  useContextualShortcuts();
-
   const handleDrawerToggle = () => {
     if (isMobile) {
       setMobileOpen(!mobileOpen);
@@ -118,7 +115,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           height: '100%',
           display: 'flex',
           flexDirection: 'column',
-          background: 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)',
+          background: mode === 'dark' 
+            ? 'linear-gradient(180deg, #0f172a 0%, #1e293b 100%)'
+            : 'linear-gradient(180deg, #f8fafc 0%, #ffffff 100%)',
           position: 'relative',
           overflow: 'hidden',
           '&::before': {
@@ -128,7 +127,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             left: 0,
             right: 0,
             bottom: 0,
-            background: 'radial-gradient(circle at 20% 50%, rgba(8, 145, 178, 0.1) 0%, transparent 50%)',
+            background: mode === 'dark'
+              ? 'radial-gradient(circle at 20% 50%, rgba(8, 145, 178, 0.1) 0%, transparent 50%)'
+              : 'radial-gradient(circle at 20% 50%, rgba(8, 145, 178, 0.05) 0%, transparent 50%)',
             pointerEvents: 'none',
           },
         }}
@@ -170,7 +171,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Typography
               variant="h6"
               sx={{
-                color: '#fff',
+                color: mode === 'dark' ? '#fff' : theme.palette.text.primary,
                 fontWeight: 700,
                 letterSpacing: '-0.02em',
               }}
@@ -225,7 +226,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         )}
       </Box>
 
-      <Divider sx={{ borderColor: 'rgba(148, 163, 184, 0.15)', position: 'relative', zIndex: 1 }} />
+      <Divider sx={{ 
+        borderColor: mode === 'dark' ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)', 
+        position: 'relative', 
+        zIndex: 1 
+      }} />
 
       {/* Navigation */}
       <List sx={{ flex: 1, px: 1.5, py: 2, position: 'relative', zIndex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
@@ -250,13 +255,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 sx={{
                   mb: 0.5,
                   borderRadius: 2,
-                  color: isActive ? '#fff' : '#94a3b8',
+                  color: isActive 
+                    ? (mode === 'dark' ? '#fff' : theme.palette.primary.main)
+                    : (mode === 'dark' ? '#94a3b8' : theme.palette.text.secondary),
                   bgcolor: isActive 
-                    ? 'rgba(8, 145, 178, 0.25)' 
+                    ? (mode === 'dark' ? 'rgba(8, 145, 178, 0.25)' : 'rgba(8, 145, 178, 0.1)')
                     : 'transparent',
                   justifyContent: collapsed && !isMobile ? 'center' : 'flex-start',
                   px: collapsed && !isMobile ? 2 : 2.5,
-                  py: 1,
+                  py: { xs: 1.25, sm: 1 },
+                  minHeight: { xs: 48, sm: 40 },
                   transition: 'all 0.2s ease-in-out',
                   position: 'relative',
                   '&::before': isActive ? {
@@ -267,14 +275,16 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     transform: 'translateY(-50%)',
                     width: 3,
                     height: '60%',
-                    bgcolor: '#22d3ee',
+                    bgcolor: theme.palette.primary.light,
                     borderRadius: '0 2px 2px 0',
                   } : {},
                   '&:hover': {
                     bgcolor: isActive 
-                      ? 'rgba(8, 145, 178, 0.35)' 
-                      : 'rgba(148, 163, 184, 0.08)',
-                    color: isActive ? '#fff' : '#cbd5e1',
+                      ? (mode === 'dark' ? 'rgba(8, 145, 178, 0.35)' : 'rgba(8, 145, 178, 0.15)')
+                      : (mode === 'dark' ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)'),
+                    color: isActive 
+                      ? (mode === 'dark' ? '#fff' : theme.palette.primary.main)
+                      : (mode === 'dark' ? '#cbd5e1' : theme.palette.text.primary),
                     transform: 'translateX(2px)',
                   },
                   '&:active': {
@@ -284,11 +294,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               >
                 <ListItemIcon
                   sx={{
-                    color: isActive ? '#22d3ee' : '#64748b',
-                    minWidth: collapsed && !isMobile ? 0 : 44,
+                    color: isActive 
+                      ? theme.palette.primary.light 
+                      : (mode === 'dark' ? '#64748b' : theme.palette.text.secondary),
+                    minWidth: collapsed && !isMobile ? 0 : { xs: 48, sm: 44 },
                     transition: 'color 0.2s ease-in-out',
                     '& .MuiSvgIcon-root': {
-                      fontSize: '1.4rem',
+                      fontSize: { xs: '1.5rem', sm: '1.4rem' },
                     },
                   }}
                 >
@@ -314,9 +326,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       <Box 
         sx={{ 
           p: collapsed && !isMobile ? 1.5 : 2, 
-          borderTop: '1px solid rgba(148, 163, 184, 0.15)',
+          borderTop: `1px solid ${mode === 'dark' ? 'rgba(148, 163, 184, 0.15)' : 'rgba(0, 0, 0, 0.08)'}`,
           transition: 'padding 0.2s ease-in-out',
-          bgcolor: 'rgba(15, 23, 42, 0.6)',
+          bgcolor: mode === 'dark' ? 'rgba(15, 23, 42, 0.6)' : 'rgba(255, 255, 255, 0.6)',
           position: 'relative',
           zIndex: 1,
           backdropFilter: 'blur(10px)',
@@ -361,13 +373,13 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               gap: 1.5,
               p: 1.5,
               borderRadius: 2,
-              bgcolor: 'rgba(148, 163, 184, 0.08)',
-              border: '1px solid rgba(148, 163, 184, 0.1)',
+              bgcolor: mode === 'dark' ? 'rgba(148, 163, 184, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+              border: `1px solid ${mode === 'dark' ? 'rgba(148, 163, 184, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
               transition: 'all 0.2s',
               cursor: 'pointer',
               '&:hover': {
-                bgcolor: 'rgba(148, 163, 184, 0.12)',
-                borderColor: 'rgba(148, 163, 184, 0.2)',
+                bgcolor: mode === 'dark' ? 'rgba(148, 163, 184, 0.12)' : 'rgba(0, 0, 0, 0.06)',
+                borderColor: mode === 'dark' ? 'rgba(148, 163, 184, 0.2)' : 'rgba(0, 0, 0, 0.12)',
                 transform: 'translateY(-1px)',
               },
             }}
@@ -390,7 +402,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Typography
                 variant="body2"
                 sx={{ 
-                  color: '#f1f5f9', 
+                  color: mode === 'dark' ? '#f1f5f9' : theme.palette.text.primary, 
                   fontWeight: 600, 
                   lineHeight: 1.3,
                   fontSize: '0.875rem',
@@ -402,7 +414,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               <Typography 
                 variant="caption" 
                 sx={{ 
-                  color: '#94a3b8',
+                  color: mode === 'dark' ? '#94a3b8' : theme.palette.text.secondary,
                   fontSize: '0.75rem',
                   textTransform: 'uppercase',
                   letterSpacing: '0.5px',
@@ -481,23 +493,40 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         <AppBar
           position="sticky"
           sx={{
-            bgcolor: '#fff',
-            boxShadow: '0 1px 3px 0 rgb(0 0 0 / 0.05)',
+            bgcolor: theme.palette.background.paper,
+            color: theme.palette.text.primary,
+            boxShadow: mode === 'dark' 
+              ? '0 1px 3px 0 rgb(0 0 0 / 0.3)'
+              : '0 1px 3px 0 rgb(0 0 0 / 0.05)',
           }}
         >
-          <Toolbar sx={{ justifyContent: 'space-between' }}>
+          <Toolbar sx={{ justifyContent: 'space-between', minHeight: { xs: 56, sm: 64 } }}>
             <IconButton
-              color="inherit"
               edge="start"
               onClick={handleDrawerToggle}
-              sx={{ mr: 2, display: { md: 'none' } }}
+              sx={{ 
+                mr: 2, 
+                display: { md: 'none' },
+                color: theme.palette.text.primary,
+                minWidth: 44,
+                minHeight: 44,
+                '&:hover': {
+                  bgcolor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+                },
+              }}
+              aria-label="menu"
             >
               <MenuIcon />
             </IconButton>
 
             <Typography
               variant="h6"
-              sx={{ fontWeight: 600, color: '#1e293b', flex: 1 }}
+              sx={{ 
+                fontWeight: 600, 
+                color: theme.palette.text.primary, 
+                flex: 1,
+                fontSize: { xs: '1rem', sm: '1.25rem' },
+              }}
             >
               {navItems.find(
                 (item) =>
@@ -506,28 +535,56 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               )?.label || 'Dashboard'}
             </Typography>
 
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: { xs: 0.5, sm: 1 } }}>
               <Tooltip title={mode === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}>
-                <IconButton onClick={toggleMode} aria-label="toggle theme">
+                <IconButton 
+                  onClick={toggleMode} 
+                  aria-label="toggle theme"
+                  sx={{
+                    minWidth: { xs: 44, sm: 40 },
+                    minHeight: { xs: 44, sm: 40 },
+                    color: theme.palette.text.secondary,
+                    '&:hover': {
+                      bgcolor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+                    },
+                  }}
+                >
                   {mode === 'dark' ? (
-                    <LightModeIcon sx={{ color: '#64748b' }} />
+                    <LightModeIcon />
                   ) : (
-                    <DarkModeIcon sx={{ color: '#64748b' }} />
+                    <DarkModeIcon />
                   )}
                 </IconButton>
               </Tooltip>
               
-              <IconButton aria-label="notifications">
-                <NotificationsIcon sx={{ color: '#64748b' }} />
+              <IconButton 
+                aria-label="notifications"
+                sx={{
+                  minWidth: { xs: 44, sm: 40 },
+                  minHeight: { xs: 44, sm: 40 },
+                  color: theme.palette.text.secondary,
+                  '&:hover': {
+                    bgcolor: mode === 'dark' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.04)',
+                  },
+                }}
+              >
+                <NotificationsIcon />
               </IconButton>
 
-              <IconButton onClick={handleMenuOpen}>
+              <IconButton 
+                onClick={handleMenuOpen}
+                sx={{
+                  minWidth: { xs: 44, sm: 40 },
+                  minHeight: { xs: 44, sm: 40 },
+                  p: 0.5,
+                }}
+              >
                 <Avatar
                   sx={{
-                    width: 36,
-                    height: 36,
-                    bgcolor: '#0891b2',
-                    fontSize: '0.85rem',
+                    width: { xs: 40, sm: 36 },
+                    height: { xs: 40, sm: 36 },
+                    bgcolor: theme.palette.primary.main,
+                    fontSize: { xs: '0.9rem', sm: '0.85rem' },
                   }}
                 >
                   {user?.firstName?.[0]}

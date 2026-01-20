@@ -2,7 +2,8 @@ import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import bcrypt from 'bcryptjs';
 import { PrismaClient } from '@prisma/client';
-import { authenticate, authorize } from '../middleware/auth';
+import { authenticate, authorize, isAdmin } from '../middleware/auth';
+import { getUserPermissions, PermissionModule } from '../middleware/permissions';
 import { parsePagination, getPaginationMeta } from '../utils/helpers';
 
 const router = Router();
@@ -335,6 +336,167 @@ router.delete(
       res.json({
         success: true,
         message: 'User deactivated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// GET /api/users/:id/permissions - Get user's permissions
+router.get(
+  '/:id/permissions',
+  authenticate,
+  isAdmin,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const user = await prisma.user.findUnique({
+        where: { id },
+        select: {
+          id: true,
+          role: true,
+        },
+      });
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found',
+        });
+        return;
+      }
+
+      const permissions = await getUserPermissions(user.id, user.role);
+      const permissionsArray = Object.values(permissions);
+
+      res.json({
+        success: true,
+        data: permissionsArray,
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// PUT /api/users/:id/permissions - Update user's permissions
+router.put(
+  '/:id/permissions',
+  authenticate,
+  isAdmin,
+  [
+    body('permissions').isArray().withMessage('Permissions must be an array'),
+    body('permissions.*.module').isIn(['patients', 'appointments', 'treatments', 'invoices', 'payments', 'reports', 'users', 'settings']).withMessage('Invalid module'),
+    body('permissions.*.canCreate').isBoolean().withMessage('canCreate must be boolean'),
+    body('permissions.*.canRead').isBoolean().withMessage('canRead must be boolean'),
+    body('permissions.*.canUpdate').isBoolean().withMessage('canUpdate must be boolean'),
+    body('permissions.*.canDelete').isBoolean().withMessage('canDelete must be boolean'),
+  ],
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        res.status(400).json({ success: false, errors: errors.array() });
+        return;
+      }
+
+      const { id } = req.params;
+      const { permissions } = req.body;
+
+      const user = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found',
+        });
+        return;
+      }
+
+      // Delete existing permissions
+      await prisma.userPermission.deleteMany({
+        where: { userId: id },
+      });
+
+      // Create new permissions
+      const permissionData = permissions.map((perm: any) => ({
+        userId: id,
+        module: perm.module as PermissionModule,
+        canCreate: perm.canCreate,
+        canRead: perm.canRead,
+        canUpdate: perm.canUpdate,
+        canDelete: perm.canDelete,
+      }));
+
+      await prisma.userPermission.createMany({
+        data: permissionData,
+      });
+
+      // Log activity
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'UPDATE',
+          entityType: 'User',
+          entityId: id,
+          description: `Updated permissions for user ${user.email}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'Permissions updated successfully',
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
+// POST /api/users/:id/permissions/reset - Reset permissions to role defaults
+router.post(
+  '/:id/permissions/reset',
+  authenticate,
+  isAdmin,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      const user = await prisma.user.findUnique({
+        where: { id },
+      });
+
+      if (!user) {
+        res.status(404).json({
+          success: false,
+          message: 'User not found',
+        });
+        return;
+      }
+
+      // Delete all custom permissions (will fall back to role defaults)
+      await prisma.userPermission.deleteMany({
+        where: { userId: id },
+      });
+
+      // Log activity
+      await prisma.activityLog.create({
+        data: {
+          userId: req.user!.id,
+          action: 'UPDATE',
+          entityType: 'User',
+          entityId: id,
+          description: `Reset permissions to role defaults for user ${user.email}`,
+        },
+      });
+
+      res.json({
+        success: true,
+        message: 'Permissions reset to role defaults successfully',
       });
     } catch (error) {
       next(error);

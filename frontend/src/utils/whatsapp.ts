@@ -183,3 +183,280 @@ export function sendPaymentReminder(data: {
   const message = generatePaymentReminderMessage(data);
   openWhatsApp(data.phone, message);
 }
+
+/**
+ * Generates an invoice message for WhatsApp
+ */
+export function generateInvoiceMessage(data: {
+  invoice: {
+    invoiceNumber: string;
+    createdAt: string;
+    dueDate?: string;
+    subtotal: number;
+    discount: number;
+    tax: number;
+    totalAmount: number;
+    paidAmount: number;
+    dueAmount: number;
+    items?: Array<{
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      amount: number;
+    }>;
+    notes?: string;
+  };
+  patient: {
+    firstName: string;
+    lastName: string;
+  };
+  clinicSettings: {
+    name: string;
+    phone?: string;
+    upiId?: string;
+  };
+}): string {
+  const { invoice, patient, clinicSettings } = data;
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  const patientName = `${patient.firstName} ${patient.lastName}`;
+  
+  let message = `Hello ${patientName},\n\n`;
+  message += `Your invoice has been generated:\n\n`;
+  message += `📋 Invoice: ${invoice.invoiceNumber}\n`;
+  message += `📅 Date: ${formatDate(invoice.createdAt)}\n`;
+  message += `👤 Patient: ${patientName}\n\n`;
+
+  // Add items if available
+  if (invoice.items && invoice.items.length > 0) {
+    message += `Services:\n`;
+    invoice.items.forEach((item) => {
+      const qty = item.quantity > 1 ? ` (${item.quantity}x)` : '';
+      message += `• ${item.description}${qty} - ${formatCurrency(item.amount)}\n`;
+    });
+    message += `\n`;
+  }
+
+  // Add totals
+  message += `Subtotal: ${formatCurrency(invoice.subtotal)}\n`;
+  if (invoice.discount > 0) {
+    message += `Discount: -${formatCurrency(invoice.discount)}\n`;
+  }
+  if (invoice.tax > 0) {
+    message += `Tax: ${formatCurrency(invoice.tax)}\n`;
+  }
+  message += `━━━━━━━━━━━━━━━━\n`;
+  message += `Total: ${formatCurrency(invoice.totalAmount)}\n`;
+  if (invoice.paidAmount > 0) {
+    message += `Paid: ${formatCurrency(invoice.paidAmount)}\n`;
+  }
+  message += `Due: ${formatCurrency(invoice.dueAmount)}\n\n`;
+
+  // Add UPI payment info if configured
+  if (clinicSettings.upiId && invoice.dueAmount > 0) {
+    message += `💳 Payment via UPI:\n`;
+    message += `${clinicSettings.upiId} (Amount: ${formatCurrency(invoice.dueAmount)})\n\n`;
+  }
+
+  // Add due date if available
+  if (invoice.dueDate) {
+    message += `Due Date: ${formatDate(invoice.dueDate)}\n\n`;
+  }
+
+  // Add notes if available
+  if (invoice.notes) {
+    message += `Notes: ${invoice.notes}\n\n`;
+  }
+
+  message += `Thank you!\n`;
+  message += `${clinicSettings.name}\n`;
+  if (clinicSettings.phone) {
+    message += `${clinicSettings.phone}\n`;
+  }
+
+  return message;
+}
+
+/**
+ * Generates a payment update message for WhatsApp
+ */
+export function generatePaymentUpdateMessage(data: {
+  payment: {
+    amount: number;
+    paymentMode: string;
+    paymentDate: string;
+  };
+  invoice: {
+    invoiceNumber: string;
+    dueAmount: number;
+  };
+  patient: {
+    firstName: string;
+    lastName: string;
+  };
+  clinicSettings: {
+    name: string;
+  };
+}): string {
+  const { payment, invoice, patient, clinicSettings } = data;
+  const formatCurrency = (amount: number) => {
+    return new Intl.NumberFormat('en-IN', {
+      style: 'currency',
+      currency: 'INR',
+      maximumFractionDigits: 0,
+    }).format(amount);
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-IN', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    });
+  };
+
+  const patientName = `${patient.firstName} ${patient.lastName}`;
+  
+  let message = `Hello ${patientName},\n\n`;
+  message += `Payment received successfully!\n\n`;
+  message += `📋 Invoice: ${invoice.invoiceNumber}\n`;
+  message += `💰 Amount: ${formatCurrency(payment.amount)}\n`;
+  message += `💳 Mode: ${payment.paymentMode}\n`;
+  message += `📅 Date: ${formatDate(payment.paymentDate)}\n\n`;
+
+  if (invoice.dueAmount > 0) {
+    message += `Remaining Balance: ${formatCurrency(invoice.dueAmount)}\n\n`;
+  } else {
+    message += `✅ Invoice fully paid!\n\n`;
+  }
+
+  message += `Thank you for your payment!\n`;
+  message += `${clinicSettings.name}`;
+
+  return message;
+}
+
+/**
+ * Opens WhatsApp with invoice message
+ */
+export function sendInvoiceMessage(data: {
+  phone: string;
+  invoice: {
+    invoiceNumber: string;
+    createdAt: string;
+    dueDate?: string;
+    subtotal: number;
+    discount: number;
+    tax: number;
+    totalAmount: number;
+    paidAmount: number;
+    dueAmount: number;
+    items?: Array<{
+      description: string;
+      quantity: number;
+      unitPrice: number;
+      amount: number;
+    }>;
+    notes?: string;
+  };
+  patient: {
+    firstName: string;
+    lastName: string;
+  };
+  clinicSettings: {
+    name: string;
+    phone?: string;
+    upiId?: string;
+  };
+}): void {
+  const message = generateInvoiceMessage(data);
+  openWhatsApp(data.phone, message);
+}
+
+/**
+ * Opens WhatsApp with payment update message
+ */
+export function sendPaymentUpdateMessage(data: {
+  phone: string;
+  payment: {
+    amount: number;
+    paymentMode: string;
+    paymentDate: string;
+  };
+  invoice: {
+    invoiceNumber: string;
+    dueAmount: number;
+  };
+  patient: {
+    firstName: string;
+    lastName: string;
+  };
+  clinicSettings: {
+    name: string;
+  };
+}): void {
+  const message = generatePaymentUpdateMessage(data);
+  openWhatsApp(data.phone, message);
+}
+
+/**
+ * Generates a message for PDF attachment via WhatsApp
+ */
+export function generatePDFAttachmentMessage(data: {
+  patient: {
+    firstName: string;
+    lastName: string;
+  };
+  invoice: {
+    invoiceNumber: string;
+  };
+  clinicSettings: {
+    name: string;
+  };
+}): string {
+  const { patient, invoice, clinicSettings } = data;
+  const patientName = `${patient.firstName} ${patient.lastName}`;
+  
+  let message = `Hello ${patientName},\n\n`;
+  message += `Please find attached your invoice: ${invoice.invoiceNumber}\n\n`;
+  message += `Thank you!\n`;
+  message += `${clinicSettings.name}`;
+
+  return message;
+}
+
+/**
+ * Opens WhatsApp with PDF attachment message
+ */
+export function openWhatsAppWithPDFMessage(data: {
+  phone: string;
+  patient: {
+    firstName: string;
+    lastName: string;
+  };
+  invoice: {
+    invoiceNumber: string;
+  };
+  clinicSettings: {
+    name: string;
+  };
+}): void {
+  const message = generatePDFAttachmentMessage(data);
+  openWhatsApp(data.phone, message);
+}

@@ -105,17 +105,84 @@ model User {
   updatedAt DateTime @updatedAt
 
   // Relations
-  appointments       Appointment[]     @relation("DentistAppointments")
+  appointments        Appointment[]    @relation("DentistAppointments")
   createdAppointments Appointment[]    @relation("CreatedByUser")
-  treatments         Treatment[]       @relation("DentistTreatments")
-  diagnoses          Diagnosis[]
-  dentalCharts       DentalChart[]
-  documents          Document[]
-  invoices           Invoice[]
-  payments           Payment[]
-  activityLogs       ActivityLog[]
+  treatments          Treatment[]      @relation("DentistTreatments")
+  diagnoses           Diagnosis[]
+  dentalCharts        DentalChart[]
+  documents           Document[]
+  invoices            Invoice[]
+  payments            Payment[]
+  activityLogs        ActivityLog[]
+  permissions         UserPermission[]
 
   @@map("users")
+}
+
+// User Permission model - Granular permissions per user
+model UserPermission {
+  id        String   @id @default(uuid())
+  userId    String
+  module    String // e.g., "patients", "appointments", "treatments", "invoices", "payments", "reports", "users", "settings"
+  canCreate Boolean  @default(false)
+  canRead   Boolean  @default(true) // Usually true for basic access
+  canUpdate Boolean  @default(false)
+  canDelete Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, module])
+  @@map("user_permissions")
+}
+
+// Invoice Template model - Customizable invoice templates
+model InvoiceTemplate {
+  id                String   @id @default(uuid())
+  name              String   @default("Default")
+  isDefault         Boolean  @default(true)
+  
+  // Header Settings
+  logoPosition      String   @default("left") // "left", "center", "right"
+  showClinicName    Boolean  @default(true)
+  showAddress       Boolean  @default(true)
+  showContact       Boolean  @default(true)
+  
+  // Layout Settings
+  templateStyle     String   @default("classic") // "classic", "modern", "minimal"
+  itemTableStyle    String   @default("bordered") // "bordered", "striped", "minimal"
+  totalsPosition    String   @default("right") // "left", "right", "center"
+  
+  // Payment Terms
+  paymentTerms      String?  // Custom payment terms text
+  showDueDate       Boolean  @default(true)
+  showPaymentMethods Boolean @default(true)
+  lateFeeEnabled    Boolean  @default(false)
+  lateFeePercent    Float?   @default(0)
+  lateFeeDays       Int?     @default(30)
+  
+  // Tax Settings
+  taxLabel          String   @default("Tax") // "GST", "VAT", "Service Tax", etc.
+  taxType           String   @default("percentage") // "percentage", "fixed"
+  showTaxBreakdown  Boolean  @default(false)
+  taxId             String?  // GST/VAT registration number
+  
+  // Footer Settings
+  footerText        String?  // Terms & conditions, thank you message
+  showSignature     Boolean  @default(false)
+  signatureLabel    String?  @default("Authorized Signature")
+  
+  // Colors & Styling
+  primaryColor      String   @default("#0891b2")
+  headerBgColor     String?  
+  footerBgColor     String?
+  fontFamily        String   @default("Arial, sans-serif")
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@map("invoice_templates")
 }
 
 // Patient model
@@ -142,32 +209,32 @@ model Patient {
   updatedAt        DateTime @updatedAt
 
   // Relations
-  medicalHistory   MedicalHistory?
-  appointments     Appointment[]
-  dentalCharts     DentalChart[]
-  diagnoses        Diagnosis[]
-  treatments       Treatment[]
-  invoices         Invoice[]
-  documents        Document[]
+  medicalHistory MedicalHistory?
+  appointments   Appointment[]
+  dentalCharts   DentalChart[]
+  diagnoses      Diagnosis[]
+  treatments     Treatment[]
+  invoices       Invoice[]
+  documents      Document[]
 
   @@map("patients")
 }
 
 // Medical History model
 model MedicalHistory {
-  id                  String   @id @default(uuid())
-  patientId           String   @unique
-  allergies           String[] @default([])
-  chronicDiseases     String[] @default([])
-  currentMedications  String[] @default([])
-  previousSurgeries   String[] @default([])
-  familyHistory       String?
-  smokingStatus       String?
-  alcoholConsumption  String?
-  pregnancyStatus     String?
-  lastUpdated         DateTime @default(now())
-  createdAt           DateTime @default(now())
-  updatedAt           DateTime @updatedAt
+  id                 String   @id @default(uuid())
+  patientId          String   @unique
+  allergies          String[] @default([])
+  chronicDiseases    String[] @default([])
+  currentMedications String[] @default([])
+  previousSurgeries  String[] @default([])
+  familyHistory      String?
+  smokingStatus      String?
+  alcoholConsumption String?
+  pregnancyStatus    String?
+  lastUpdated        DateTime @default(now())
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
 
   // Relations
   patient Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -177,14 +244,14 @@ model MedicalHistory {
 
 // Dental Chart model - Stores tooth status for each patient
 model DentalChart {
-  id         String   @id @default(uuid())
-  patientId  String
-  chartData  Json     // JSON object with tooth numbers and their status
-  version    Int      @default(1)
-  notes      String?
+  id          String   @id @default(uuid())
+  patientId   String
+  chartData   Json // JSON object with tooth numbers and their status
+  version     Int      @default(1)
+  notes       String?
   createdById String
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
   // Relations
   patient   Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
@@ -216,7 +283,7 @@ model Diagnosis {
   patientId     String
   diseaseId     String
   toothNumbers  Int[]    @default([]) // Array of affected tooth numbers (FDI)
-  severity      String?  // Mild, Moderate, Severe
+  severity      String? // Mild, Moderate, Severe
   notes         String?
   diagnosedById String
   diagnosedAt   DateTime @default(now())
@@ -224,9 +291,9 @@ model Diagnosis {
   updatedAt     DateTime @updatedAt
 
   // Relations
-  patient    Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  disease    Disease @relation(fields: [diseaseId], references: [id])
-  diagnosedBy User   @relation(fields: [diagnosedById], references: [id])
+  patient     Patient @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  disease     Disease @relation(fields: [diseaseId], references: [id])
+  diagnosedBy User    @relation(fields: [diagnosedById], references: [id])
 
   @@map("diagnoses")
 }
@@ -238,7 +305,7 @@ model ProcedureType {
   code        String?  @unique
   description String?
   defaultCost Float    @default(0)
-  duration    Int?     // Duration in minutes
+  duration    Int? // Duration in minutes
   category    String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
@@ -301,13 +368,13 @@ model Appointment {
   patientId       String
   dentistId       String
   appointmentDate DateTime
-  startTime       String            // Format: "HH:MM"
-  endTime         String            // Format: "HH:MM"
+  startTime       String // Format: "HH:MM"
+  endTime         String // Format: "HH:MM"
   type            AppointmentType   @default(CONSULTATION)
   status          AppointmentStatus @default(CONFIRMED)
   reason          String?
   notes           String?
-  toothNumbers    Int[]            @default([]) // FDI tooth numbers (11-48)
+  toothNumbers    Int[]             @default([]) // FDI tooth numbers (11-48)
   createdById     String
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
@@ -340,9 +407,9 @@ model Invoice {
   updatedAt     DateTime      @updatedAt
 
   // Relations
-  patient   Patient     @relation(fields: [patientId], references: [id], onDelete: Cascade)
-  treatment Treatment?  @relation(fields: [treatmentId], references: [id])
-  createdBy User        @relation(fields: [createdById], references: [id])
+  patient   Patient       @relation(fields: [patientId], references: [id], onDelete: Cascade)
+  treatment Treatment?    @relation(fields: [treatmentId], references: [id])
+  createdBy User          @relation(fields: [createdById], references: [id])
   payments  Payment[]
   items     InvoiceItem[]
 
@@ -351,15 +418,15 @@ model Invoice {
 
 // Invoice Item model - Line items in an invoice
 model InvoiceItem {
-  id          String   @id @default(uuid())
-  invoiceId   String
-  description String
-  toothNumbers Int[]   @default([])
-  quantity    Int      @default(1)
-  unitPrice   Float    @default(0)
-  amount      Float    @default(0)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id           String   @id @default(uuid())
+  invoiceId    String
+  description  String
+  toothNumbers Int[]    @default([])
+  quantity     Int      @default(1)
+  unitPrice    Float    @default(0)
+  amount       Float    @default(0)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   // Relations
   invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
@@ -428,6 +495,3 @@ model ActivityLog {
 
   @@map("activity_logs")
 }
-
-
-

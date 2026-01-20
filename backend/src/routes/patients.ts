@@ -3,6 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
 import PDFDocument from 'pdfkit';
 import { authenticate } from '../middleware/auth';
+import { checkPermission } from '../middleware/permissions';
 import { generatePatientId, parsePagination, getPaginationMeta, calculateAge } from '../utils/helpers';
 
 const router = Router();
@@ -12,6 +13,7 @@ const prisma = new PrismaClient();
 router.get(
   '/',
   authenticate,
+  checkPermission('patients', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { page, limit, skip } = parsePagination(
@@ -171,6 +173,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  checkPermission('patients', 'create'),
   [
     body('firstName').trim().notEmpty().withMessage('First name is required'),
     body('lastName').trim().notEmpty().withMessage('Last name is required'),
@@ -264,6 +267,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
+  checkPermission('patients', 'update'),
   [
     body('firstName').optional().trim().notEmpty().withMessage('First name cannot be empty'),
     body('lastName').optional().trim().notEmpty().withMessage('Last name cannot be empty'),
@@ -330,6 +334,7 @@ router.put(
 router.put(
   '/:id/medical-history',
   authenticate,
+  checkPermission('patients', 'update'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -385,6 +390,7 @@ router.put(
 router.delete(
   '/:id',
   authenticate,
+  checkPermission('patients', 'delete'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

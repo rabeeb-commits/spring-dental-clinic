@@ -185,6 +185,42 @@ async function main() {
   });
   console.log('✅ Created sample patient:', patient2.patientId);
 
+  // Create default invoice template
+  const existingDefault = await prisma.invoiceTemplate.findFirst({
+    where: { isDefault: true },
+  });
+
+  if (!existingDefault) {
+    const defaultTemplate = await prisma.invoiceTemplate.create({
+      data: {
+      name: 'Default',
+      isDefault: true,
+      logoPosition: 'left',
+      showClinicName: true,
+      showAddress: true,
+      showContact: true,
+      templateStyle: 'classic',
+      itemTableStyle: 'bordered',
+      totalsPosition: 'right',
+      showDueDate: true,
+      showPaymentMethods: true,
+      lateFeeEnabled: false,
+      lateFeePercent: 0,
+      lateFeeDays: 30,
+      taxLabel: 'Tax',
+      taxType: 'percentage',
+      showTaxBreakdown: false,
+      showSignature: false,
+      signatureLabel: 'Authorized Signature',
+      primaryColor: '#0891b2',
+        fontFamily: 'Arial, sans-serif',
+      },
+    });
+    console.log('✅ Created default invoice template');
+  } else {
+    console.log('✅ Default invoice template already exists');
+  }
+
   console.log('🎉 Database seed completed successfully!');
   console.log('\n📋 Login credentials:');
   console.log('   Admin: admin@dentalclinic.com / admin123');

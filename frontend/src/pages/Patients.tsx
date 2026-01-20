@@ -47,6 +47,7 @@ import {
   FilterList as FilterIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
+  CalendarMonth as CalendarIcon,
 } from '@mui/icons-material';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useForm, Controller } from 'react-hook-form';
@@ -61,6 +62,8 @@ import StatusBadge from '../components/common/StatusBadge';
 import ConfirmDialog from '../components/common/ConfirmDialog';
 import LoadingSpinner from '../components/common/LoadingSpinner';
 import { useDebounce } from '../hooks/useDebounce';
+import { usePermissions } from '../hooks/usePermissions';
+import { useAuth } from '../context/AuthContext';
 
 interface PatientFormData {
   firstName: string;
@@ -82,6 +85,8 @@ interface PatientFormData {
 const Patients: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { user } = useAuth();
+  const permissions = usePermissions();
   
   const [patients, setPatients] = useState<Patient[]>([]);
   const [loading, setLoading] = useState(true);
@@ -244,6 +249,84 @@ const Patients: React.FC = () => {
     }
   };
 
+  const handleSelectAll = (event: React.ChangeEvent<HTMLInputElement>) => {
+    if (event.target.checked) {
+      // Select all patients on current page
+      const allPatientIds = patients.map((patient) => patient.id);
+      setSelectedPatients(allPatientIds);
+    } else {
+      // Deselect all
+      setSelectedPatients([]);
+    }
+  };
+
+  const handleSelectPatient = (patientId: string) => {
+    setSelectedPatients((prev) => {
+      if (prev.includes(patientId)) {
+        // Remove from selection
+        return prev.filter((id) => id !== patientId);
+      } else {
+        // Add to selection
+        return [...prev, patientId];
+      }
+    });
+  };
+
+  const handleBulkStatusUpdate = async (isActive: boolean) => {
+    if (selectedPatients.length === 0) {
+      toast.error('Please select at least one patient');
+      return;
+    }
+
+    try {
+      // Update all selected patients concurrently
+      const updatePromises = selectedPatients.map((patientId) =>
+        patientsApi.update(patientId, { isActive })
+      );
+
+      await Promise.all(updatePromises);
+
+      toast.success(
+        `${selectedPatients.length} patient(s) ${isActive ? 'activated' : 'deactivated'} successfully`
+      );
+      setSelectedPatients([]);
+      fetchPatients();
+    } catch (error) {
+      // Error handled by interceptor, but show additional info
+      toast.error('Some patients could not be updated. Please try again.');
+    }
+  };
+
+  const handleBulkDelete = async () => {
+    if (selectedPatients.length === 0) {
+      toast.error('Please select at least one patient');
+      return;
+    }
+
+    // Show confirmation dialog
+    if (
+      window.confirm(
+        `Are you sure you want to deactivate ${selectedPatients.length} patient(s)? This action cannot be undone.`
+      )
+    ) {
+      try {
+        // Delete (deactivate) all selected patients concurrently
+        const deletePromises = selectedPatients.map((patientId) =>
+          patientsApi.delete(patientId)
+        );
+
+        await Promise.all(deletePromises);
+
+        toast.success(`${selectedPatients.length} patient(s) deactivated successfully`);
+        setSelectedPatients([]);
+        fetchPatients();
+      } catch (error) {
+        // Error handled by interceptor, but show additional info
+        toast.error('Some patients could not be deactivated. Please try again.');
+      }
+    }
+  };
+
   const getGenderColor = (gender: Gender) => {
     const colors = {
       MALE: '#3b82f6',
@@ -265,14 +348,16 @@ const Patients: React.FC = () => {
             Manage patient records and information
           </Typography>
         </Box>
-        <Button
-          variant="contained"
-          startIcon={<AddIcon />}
-          onClick={() => handleOpenDialog()}
-          sx={{ px: 3 }}
-        >
-          Add Patient
-        </Button>
+        {permissions.patients.canCreate && (
+          <Button
+            variant="contained"
+            startIcon={<AddIcon />}
+            onClick={() => handleOpenDialog()}
+            sx={{ px: 3 }}
+          >
+            Add Patient
+          </Button>
+        )}
       </Box>
 
       {/* Search and Filters */}
@@ -570,6 +655,20 @@ const Patients: React.FC = () => {
                       {patient._count?.appointments || 0}
                     </TableCell>
                     <TableCell align="right" onClick={(e) => e.stopPropagation()}>
+                      {permissions.appointments.canCreate && (
+                        <Tooltip title="Book Appointment">
+                          <IconButton
+                            size="small"
+                            color="primary"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              navigate(`/appointments?action=new&patientId=${patient.id}`);
+                            }}
+                          >
+                            <CalendarIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                       <Tooltip title="View Details">
                         <IconButton
                           size="small"
@@ -578,26 +677,30 @@ const Patients: React.FC = () => {
                           <ViewIcon fontSize="small" />
                         </IconButton>
                       </Tooltip>
-                      <Tooltip title="Edit">
-                        <IconButton
-                          size="small"
-                          onClick={() => handleOpenDialog(patient)}
-                        >
-                          <EditIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
-                      <Tooltip title="Delete">
-                        <IconButton
-                          size="small"
-                          color="error"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteClick(patient);
-                          }}
-                        >
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                      {permissions.patients.canUpdate && (
+                        <Tooltip title="Edit">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleOpenDialog(patient)}
+                          >
+                            <EditIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {permissions.patients.canDelete && (
+                        <Tooltip title="Delete">
+                          <IconButton
+                            size="small"
+                            color="error"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleDeleteClick(patient);
+                            }}
+                          >
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      )}
                     </TableCell>
                   </TableRow>
                 ))

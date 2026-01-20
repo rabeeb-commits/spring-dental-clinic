@@ -13,6 +13,20 @@ if (!fs.existsSync(uploadDir)) {
 // Configure storage
 const storage = multer.diskStorage({
   destination: (req: Request, file: Express.Multer.File, cb) => {
+    // Check if this is a clinic logo upload (check originalUrl or path)
+    const isClinicLogo = req.originalUrl?.includes('/settings/logo') || 
+                         req.path?.includes('/settings/logo') || 
+                         req.body.type === 'clinic-logo';
+    
+    if (isClinicLogo) {
+      const clinicDir = path.join(uploadDir, 'clinic');
+      if (!fs.existsSync(clinicDir)) {
+        fs.mkdirSync(clinicDir, { recursive: true });
+      }
+      cb(null, clinicDir);
+      return;
+    }
+
     // Create patient-specific folder if patientId is provided
     const patientId = req.body.patientId || req.params.patientId || 'general';
     const patientDir = path.join(uploadDir, patientId);
@@ -24,6 +38,17 @@ const storage = multer.diskStorage({
     cb(null, patientDir);
   },
   filename: (req: Request, file: Express.Multer.File, cb) => {
+    // For clinic logos, use a more descriptive name
+    const isClinicLogo = req.originalUrl?.includes('/settings/logo') || 
+                         req.path?.includes('/settings/logo') || 
+                         req.body.type === 'clinic-logo';
+    
+    if (isClinicLogo) {
+      const uniqueName = `logo-${uuidv4()}${path.extname(file.originalname)}`;
+      cb(null, uniqueName);
+      return;
+    }
+
     const uniqueName = `${uuidv4()}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
   },

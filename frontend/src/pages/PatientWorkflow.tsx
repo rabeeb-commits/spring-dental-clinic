@@ -53,6 +53,8 @@ import {
   Save as SaveIcon,
   NavigateNext as NavigateNextIcon,
   Close as CloseIcon,
+  QrCode as QrCodeIcon,
+  Delete as DeleteIcon,
 } from '@mui/icons-material';
 import { useParams, useNavigate, Link as RouterLink } from 'react-router-dom';
 import { format, differenceInYears } from 'date-fns';
@@ -66,6 +68,14 @@ import {
   procedureTypesApi,
 } from '../services/api';
 import ToothSelector from '../components/dental-chart/ToothSelector';
+import TreatmentModal from '../components/workflow/TreatmentModal';
+import InvoiceModal from '../components/workflow/InvoiceModal';
+import PaymentModal from '../components/workflow/PaymentModal';
+import VisitProgress from '../components/workflow/VisitProgress';
+import { useClinic } from '../context/ClinicContext';
+import { usePermissions } from '../hooks/usePermissions';
+import { useAuth } from '../context/AuthContext';
+import UPIQRCode from '../components/common/UPIQRCode';
 import {
   Appointment,
   Patient,
@@ -96,6 +106,8 @@ interface PrescriptionFormData {
 const PatientWorkflow: React.FC = () => {
   const { id: appointmentId } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
+  const permissions = usePermissions();
   
   const [loading, setLoading] = useState(true);
   const [appointment, setAppointment] = useState<Appointment | null>(null);
@@ -109,8 +121,14 @@ const PatientWorkflow: React.FC = () => {
   const [prescriptionDialogOpen, setPrescriptionDialogOpen] = useState(false);
   const [treatmentDialogOpen, setTreatmentDialogOpen] = useState(false);
   const [invoiceDialogOpen, setInvoiceDialogOpen] = useState(false);
+  const [paymentDialogOpen, setPaymentDialogOpen] = useState(false);
+  const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState<Invoice | null>(null);
+  const [selectedTreatmentForInvoice, setSelectedTreatmentForInvoice] = useState<Treatment | null>(null);
   const [followUpDialogOpen, setFollowUpDialogOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [qrCodeDialogOpen, setQrCodeDialogOpen] = useState(false);
+  const [selectedInvoiceForQr, setSelectedInvoiceForQr] = useState<Invoice | null>(null);
+  const { settings } = useClinic();
   
   // Clinical notes
   const [clinicalNotes, setClinicalNotes] = useState('');
@@ -404,13 +422,15 @@ Date: ${format(new Date(), 'PPP')}
             >
               Prescription
             </Button>
-            <Button
-              variant="outlined"
-              startIcon={<BillingIcon />}
-              onClick={() => navigate(`/billing?action=new&patientId=${patient.id}`)}
-            >
-              Invoice
-            </Button>
+            {permissions.invoices.canCreate && (
+              <Button
+                variant="outlined"
+                startIcon={<BillingIcon />}
+                onClick={() => setInvoiceDialogOpen(true)}
+              >
+                Invoice
+              </Button>
+            )}
             <Button
               variant="outlined"
               startIcon={<ScheduleIcon />}
@@ -441,6 +461,32 @@ Date: ${format(new Date(), 'PPP')}
         <Box sx={{ p: 3 }}>
           {/* Overview Tab */}
           <TabPanel value={activeTab} index={0}>
+            {/* Visit Progress */}
+            <VisitProgress
+              appointment={appointment}
+              treatments={treatments}
+              invoices={invoices}
+              hasNotes={!!clinicalNotes}
+              hasTeethSelected={selectedTeeth.length > 0}
+              onStepClick={(step) => {
+                // Navigate to relevant tab based on step
+                switch (step) {
+                  case 2: // Examination
+                    setActiveTab(6); // Notes tab
+                    break;
+                  case 3: // Treatment
+                    setActiveTab(2); // Treatments tab
+                    break;
+                  case 4: // Invoice
+                    setActiveTab(3); // Billing tab
+                    break;
+                  case 5: // Payment
+                    setActiveTab(3); // Billing tab
+                    break;
+                }
+              }}
+            />
+
             <Grid container spacing={3}>
               <Grid item xs={12} md={6}>
                 <Card variant="outlined">
@@ -620,7 +666,7 @@ Date: ${format(new Date(), 'PPP')}
               <Button
                 variant="contained"
                 startIcon={<AddIcon />}
-                onClick={() => navigate(`/treatments?action=new&patientId=${patient.id}`)}
+                onClick={() => setTreatmentDialogOpen(true)}
               >
                 New Treatment
               </Button>
@@ -641,6 +687,7 @@ Date: ${format(new Date(), 'PPP')}
                       <TableCell>Dentist</TableCell>
                       <TableCell align="right">Cost</TableCell>
                       <TableCell>Date</TableCell>
+                      <TableCell align="right">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -674,6 +721,41 @@ Date: ${format(new Date(), 'PPP')}
                         <TableCell>
                           {format(new Date(treatment.createdAt), 'PP')}
                         </TableCell>
+                        <TableCell align="right">
+                          {!treatment.invoice && permissions.invoices.canCreate && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<BillingIcon />}
+                              onClick={() => {
+                                setSelectedTreatmentForInvoice(treatment);
+                                setInvoiceDialogOpen(true);
+                              }}
+                            >
+                              Invoice
+                            </Button>
+                          )}
+                          {user?.role === 'ADMIN' && permissions.treatments.canDelete && (
+                            <Tooltip title="Delete Treatment">
+                              <IconButton
+                                size="small"
+                                color="error"
+                                onClick={async () => {
+                                  if (window.confirm('Are you sure you want to delete this treatment?')) {
+                                    try {
+                                      await treatmentsApi.delete(treatment.id);
+                                      fetchData();
+                                    } catch (error) {
+                                      // Error handled by interceptor
+                                    }
+                                  }
+                                }}
+                              >
+                                <DeleteIcon fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -686,13 +768,18 @@ Date: ${format(new Date(), 'PPP')}
           <TabPanel value={activeTab} index={3}>
             <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 3 }}>
               <Typography variant="h6" fontWeight={600}>Invoices & Payments</Typography>
-              <Button
-                variant="contained"
-                startIcon={<AddIcon />}
-                onClick={() => navigate(`/billing?action=new&patientId=${patient.id}`)}
-              >
-                New Invoice
-              </Button>
+              {permissions.invoices.canCreate && (
+                <Button
+                  variant="contained"
+                  startIcon={<AddIcon />}
+                  onClick={() => {
+                    setSelectedTreatmentForInvoice(null);
+                    setInvoiceDialogOpen(true);
+                  }}
+                >
+                  New Invoice
+                </Button>
+              )}
             </Box>
             
             {invoices.length === 0 ? (
@@ -711,6 +798,7 @@ Date: ${format(new Date(), 'PPP')}
                       <TableCell align="right">Paid</TableCell>
                       <TableCell align="right">Due</TableCell>
                       <TableCell>Date</TableCell>
+                      <TableCell align="right">Actions</TableCell>
                     </TableRow>
                   </TableHead>
                   <TableBody>
@@ -736,6 +824,53 @@ Date: ${format(new Date(), 'PPP')}
                           {formatCurrency(invoice.dueAmount)}
                         </TableCell>
                         <TableCell>{format(new Date(invoice.createdAt), 'PP')}</TableCell>
+                        <TableCell align="right">
+                          {invoice.dueAmount > 0 && (
+                            <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
+                              {settings.upiId && permissions.payments.canCreate && (
+                                <Tooltip title="Show QR Code">
+                                  <IconButton
+                                    size="small"
+                                    color="primary"
+                                    onClick={() => {
+                                      setSelectedInvoiceForQr(invoice);
+                                      setQrCodeDialogOpen(true);
+                                    }}
+                                  >
+                                    <QrCodeIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                              {permissions.payments.canCreate && (
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  color="success"
+                                  startIcon={<BillingIcon />}
+                                  onClick={() => {
+                                    setSelectedInvoiceForPayment(invoice);
+                                    setPaymentDialogOpen(true);
+                                  }}
+                                >
+                                  Pay
+                                </Button>
+                              )}
+                              {user?.role === 'ADMIN' && permissions.invoices.canDelete && (
+                                <Tooltip title="Cancel Invoice">
+                                  <IconButton
+                                    size="small"
+                                    color="error"
+                                    onClick={() => {
+                                      // TODO: Add cancel invoice handler
+                                    }}
+                                  >
+                                    <DeleteIcon fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              )}
+                            </Box>
+                          )}
+                        </TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
@@ -875,6 +1010,142 @@ Date: ${format(new Date(), 'PPP')}
             </Button>
           </DialogActions>
         </form>
+      </Dialog>
+
+      {/* Treatment Modal */}
+      <TreatmentModal
+        open={treatmentDialogOpen}
+        onClose={() => {
+          setTreatmentDialogOpen(false);
+          setSelectedTreatmentForInvoice(null);
+        }}
+        onTreatmentCreated={() => {
+          fetchData();
+        }}
+        patientId={patient.id}
+        defaultDentistId={appointment.dentistId}
+      />
+
+      {/* Invoice Modal */}
+      <InvoiceModal
+        open={invoiceDialogOpen}
+        onClose={() => {
+          setInvoiceDialogOpen(false);
+          setSelectedTreatmentForInvoice(null);
+        }}
+        onInvoiceCreated={() => {
+          fetchData();
+        }}
+        patientId={patient.id}
+        treatmentId={selectedTreatmentForInvoice?.id}
+        treatmentItems={selectedTreatmentForInvoice?.procedures?.map(proc => ({
+          description: proc.procedureType?.name || 'Procedure',
+          quantity: 1,
+          unitPrice: proc.cost,
+          toothNumbers: proc.toothNumbers,
+        }))}
+      />
+
+      {/* Payment Modal */}
+      {selectedInvoiceForPayment && (
+        <PaymentModal
+          open={paymentDialogOpen}
+          onClose={() => {
+            setPaymentDialogOpen(false);
+            setSelectedInvoiceForPayment(null);
+          }}
+          onPaymentRecorded={() => {
+            fetchData();
+          }}
+          invoice={selectedInvoiceForPayment}
+        />
+      )}
+
+      {/* QR Code Dialog */}
+      <Dialog
+        open={qrCodeDialogOpen}
+        onClose={() => {
+          setQrCodeDialogOpen(false);
+          setSelectedInvoiceForQr(null);
+        }}
+        maxWidth="sm"
+        fullWidth
+        PaperProps={{
+          sx: {
+            borderRadius: 2,
+          },
+        }}
+      >
+        <DialogTitle>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="h6" fontWeight={600}>
+              UPI Payment QR Code
+            </Typography>
+            <IconButton
+              aria-label="close"
+              onClick={() => {
+                setQrCodeDialogOpen(false);
+                setSelectedInvoiceForQr(null);
+              }}
+              sx={{ color: 'text.secondary' }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Box>
+        </DialogTitle>
+        <DialogContent dividers>
+          {selectedInvoiceForQr && settings.upiId ? (
+            <Box>
+              <Paper sx={{ mb: 3, p: 2, bgcolor: '#f8fafc', borderRadius: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Invoice: {selectedInvoiceForQr.invoiceNumber}
+                </Typography>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 1 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    Due Amount:
+                  </Typography>
+                  <Typography variant="body2" color="error.main" fontWeight={700}>
+                    {formatCurrency(selectedInvoiceForQr.dueAmount)}
+                  </Typography>
+                </Box>
+              </Paper>
+              <UPIQRCode
+                upiId={settings.upiId}
+                amount={selectedInvoiceForQr.dueAmount}
+                payeeName={settings.name}
+                transactionNote={`Invoice ${selectedInvoiceForQr.invoiceNumber}`}
+                size={250}
+              />
+            </Box>
+          ) : (
+            <Alert severity="warning">
+              UPI ID not configured. Please configure it in Settings → Clinic Settings.
+            </Alert>
+          )}
+        </DialogContent>
+        <DialogActions sx={{ p: 2 }}>
+          <Button
+            onClick={() => {
+              setQrCodeDialogOpen(false);
+              setSelectedInvoiceForQr(null);
+            }}
+          >
+            Close
+          </Button>
+          {selectedInvoiceForQr && (
+            <Button
+              variant="contained"
+              onClick={() => {
+                setQrCodeDialogOpen(false);
+                setSelectedInvoiceForPayment(selectedInvoiceForQr);
+                setPaymentDialogOpen(true);
+                setSelectedInvoiceForQr(null);
+              }}
+            >
+              Record Payment
+            </Button>
+          )}
+        </DialogActions>
       </Dialog>
     </Box>
   );

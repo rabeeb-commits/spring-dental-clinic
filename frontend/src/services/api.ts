@@ -67,6 +67,10 @@ export const usersApi = {
   create: (data: Record<string, unknown>) => api.post('/users', data),
   update: (id: string, data: Record<string, unknown>) => api.put(`/users/${id}`, data),
   delete: (id: string) => api.delete(`/users/${id}`),
+  getPermissions: (id: string) => api.get(`/users/${id}/permissions`),
+  updatePermissions: (id: string, permissions: Record<string, unknown>[]) =>
+    api.put(`/users/${id}/permissions`, { permissions }),
+  resetPermissions: (id: string) => api.post(`/users/${id}/permissions/reset`),
 };
 
 // Patients API
@@ -143,6 +147,7 @@ export const treatmentsApi = {
   updateProcedure: (procedureId: string, data: Record<string, unknown>) =>
     api.put(`/treatments/procedures/${procedureId}`, data),
   deleteProcedure: (procedureId: string) => api.delete(`/treatments/procedures/${procedureId}`),
+  delete: (id: string) => api.delete(`/treatments/${id}`),
 };
 
 // Invoices API
@@ -151,6 +156,8 @@ export const invoicesApi = {
   getOutstanding: () => api.get('/invoices/outstanding'),
   getByPatient: (patientId: string) => api.get(`/invoices/patient/${patientId}`),
   getById: (id: string) => api.get(`/invoices/${id}`),
+  exportToPDF: (id: string, params?: string) => 
+    api.get(`/invoices/${id}/pdf${params ? `?${params}` : ''}`, { responseType: 'blob' }),
   create: (data: Record<string, unknown>) => api.post('/invoices', data),
   update: (id: string, data: Record<string, unknown>) => api.put(`/invoices/${id}`, data),
   addItem: (id: string, data: Record<string, unknown>) => api.post(`/invoices/${id}/items`, data),
@@ -224,6 +231,29 @@ export const logsApi = {
   delete: (filename: string) => api.delete(`/logs/${filename}`),
   clear: (olderThanDays?: number) => api.post('/logs/clear', { olderThanDays }),
   getStats: () => api.get('/logs/stats/summary'),
+};
+
+// Invoice Templates API
+export const invoiceTemplatesApi = {
+  getAll: () => api.get('/invoice-templates'),
+  getDefault: () => api.get('/invoice-templates/default'),
+  getById: (id: string) => api.get(`/invoice-templates/${id}`),
+  create: (data: Record<string, unknown>) => api.post('/invoice-templates', data),
+  update: (id: string, data: Record<string, unknown>) => api.put(`/invoice-templates/${id}`, data),
+  setDefault: (id: string) => api.put(`/invoice-templates/${id}/set-default`),
+  delete: (id: string) => api.delete(`/invoice-templates/${id}`),
+};
+
+// Settings API
+export const settingsApi = {
+  uploadLogo: (file: File) => {
+    const formData = new FormData();
+    formData.append('logo', file);
+    return api.post('/settings/logo', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+  },
+  deleteLogo: (logoPath: string) => api.delete('/settings/logo', { data: { logoPath } }),
 };
 
 export default api;

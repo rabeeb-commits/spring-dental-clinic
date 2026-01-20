@@ -1,8 +1,12 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
+import PDFDocument from 'pdfkit';
 import { authenticate } from '../middleware/auth';
+import { checkPermission } from '../middleware/permissions';
 import { generateInvoiceNumber, parsePagination, getPaginationMeta } from '../utils/helpers';
+import path from 'path';
+import fs from 'fs';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -11,6 +15,7 @@ const prisma = new PrismaClient();
 router.get(
   '/',
   authenticate,
+  checkPermission('invoices', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { page, limit, skip } = parsePagination(
@@ -90,6 +95,7 @@ router.get(
 router.get(
   '/outstanding',
   authenticate,
+  checkPermission('invoices', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const invoices = await prisma.invoice.findMany({
@@ -130,6 +136,7 @@ router.get(
 router.get(
   '/patient/:patientId',
   authenticate,
+  checkPermission('invoices', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { patientId } = req.params;
@@ -169,10 +176,431 @@ router.get(
   }
 );
 
+// GET /api/invoices/:id/pdf - Generate invoice PDF (must be before /:id route)
+router.get(
+  '/:id/pdf',
+  authenticate,
+  checkPermission('invoices', 'read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { id } = req.params;
+
+      // Fetch invoice with all relations
+      const invoice = await prisma.invoice.findUnique({
+        where: { id },
+        include: {
+          patient: {
+            select: {
+              id: true,
+              patientId: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+              email: true,
+              address: true,
+            },
+          },
+          treatment: {
+            select: {
+              id: true,
+              title: true,
+            },
+          },
+          items: true,
+          payments: {
+            include: {
+              receivedBy: {
+                select: {
+                  id: true,
+                  firstName: true,
+                  lastName: true,
+                },
+              },
+            },
+            orderBy: { paymentDate: 'desc' },
+          },
+          createdBy: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      if (!invoice) {
+        res.status(404).json({
+          success: false,
+          message: 'Invoice not found',
+        });
+        return;
+      }
+
+      // Fetch default invoice template
+      let template = await prisma.invoiceTemplate.findFirst({
+        where: { isDefault: true },
+      });
+
+      // If no template, use defaults
+      if (!template) {
+        template = {
+          id: 'default',
+          name: 'Default',
+          isDefault: true,
+          logoPosition: 'left',
+          showClinicName: true,
+          showAddress: true,
+          showContact: true,
+          templateStyle: 'classic',
+          itemTableStyle: 'bordered',
+          totalsPosition: 'right',
+          paymentTerms: null,
+          showDueDate: true,
+          showPaymentMethods: true,
+          lateFeeEnabled: false,
+          lateFeePercent: 0,
+          lateFeeDays: 30,
+          taxLabel: 'Tax',
+          taxType: 'percentage',
+          showTaxBreakdown: false,
+          taxId: null,
+          footerText: null,
+          showSignature: false,
+          signatureLabel: 'Authorized Signature',
+          primaryColor: '#0891b2',
+          headerBgColor: null,
+          footerBgColor: null,
+          fontFamily: 'Arial, sans-serif',
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        } as any;
+      }
+
+      // Create PDF document
+      const doc = new PDFDocument({ 
+        margin: 50,
+        size: 'A4',
+      });
+
+      // Set response headers
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader(
+        'Content-Disposition',
+        `attachment; filename="invoice-${invoice.invoiceNumber}.pdf"`
+      );
+
+      // Pipe to response
+      doc.pipe(res);
+
+      // Helper function to format currency
+      const formatCurrency = (amount: number): string => {
+        return new Intl.NumberFormat('en-IN', {
+          style: 'currency',
+          currency: 'INR',
+          maximumFractionDigits: 0,
+        }).format(amount);
+      };
+
+      // Helper function to format date
+      const formatDate = (date: Date | string): string => {
+        const d = typeof date === 'string' ? new Date(date) : date;
+        return d.toLocaleDateString('en-IN', {
+          year: 'numeric',
+          month: 'long',
+          day: 'numeric',
+        });
+      };
+
+      // Get clinic settings from query parameters (passed from frontend) or environment variables
+      const clinicName = (req.query.clinicName as string) || process.env.CLINIC_NAME || 'DentalCare';
+      const clinicAddress = (req.query.clinicAddress as string) || process.env.CLINIC_ADDRESS || '';
+      const clinicPhone = (req.query.clinicPhone as string) || process.env.CLINIC_PHONE || '';
+      const clinicLogo = (req.query.clinicLogo as string) || process.env.CLINIC_LOGO || '';
+
+      // Header Section
+      let yPosition = 50;
+
+      // Logo handling (if available)
+      if (clinicLogo && (clinicLogo.startsWith('http') || clinicLogo.startsWith('/uploads/'))) {
+        try {
+          let logoPath: string | null = null;
+          
+          if (clinicLogo.startsWith('/uploads/')) {
+            const fullPath = path.join(__dirname, '../../', clinicLogo);
+            if (fs.existsSync(fullPath)) {
+              logoPath = fullPath;
+            }
+          }
+
+          if (logoPath) {
+            doc.image(logoPath, 50, yPosition, { width: 60, height: 60, fit: [60, 60] });
+          }
+        } catch (error) {
+          // Logo loading failed, continue without it
+        }
+      }
+
+      // Clinic name and info
+      const headerX = template.logoPosition === 'left' && clinicLogo ? 120 : 50;
+      
+      if (template.showClinicName) {
+        doc.fontSize(20)
+           .font('Helvetica-Bold')
+           .fillColor(template.primaryColor)
+           .text(clinicName, headerX, yPosition);
+        yPosition += 25;
+      }
+
+      if (template.showAddress && clinicAddress) {
+        doc.fontSize(10)
+           .font('Helvetica')
+           .fillColor('#000000')
+           .text(clinicAddress, headerX, yPosition, { width: 300 });
+        yPosition += 15;
+      }
+
+      if (template.showContact && clinicPhone) {
+        doc.fontSize(10)
+           .font('Helvetica')
+           .fillColor('#000000')
+           .text(`Phone: ${clinicPhone}`, headerX, yPosition);
+        yPosition += 15;
+      }
+
+      // Invoice title and info
+      yPosition += 20;
+      doc.fontSize(18)
+         .font('Helvetica-Bold')
+         .fillColor(template.primaryColor)
+         .text('INVOICE', 50, yPosition);
+      
+      yPosition += 25;
+      doc.fontSize(12)
+         .font('Helvetica-Bold')
+         .fillColor('#000000')
+         .text(`Invoice Number: ${invoice.invoiceNumber}`, 50, yPosition);
+      
+      yPosition += 15;
+      doc.fontSize(10)
+         .font('Helvetica')
+         .text(`Date: ${formatDate(invoice.createdAt)}`, 50, yPosition);
+
+      if (template.showDueDate && invoice.dueDate) {
+        yPosition += 15;
+        doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, 50, yPosition);
+      }
+
+      // Patient information (right side)
+      const patientX = 350;
+      let patientY = yPosition - 40;
+      
+      doc.fontSize(12)
+         .font('Helvetica-Bold')
+         .text('Bill To:', patientX, patientY);
+      
+      patientY += 15;
+      doc.fontSize(10)
+         .font('Helvetica')
+         .text(`${invoice.patient.firstName} ${invoice.patient.lastName}`, patientX, patientY);
+      
+      patientY += 12;
+      doc.text(`ID: ${invoice.patient.patientId}`, patientX, patientY);
+      
+      if (invoice.patient.phone) {
+        patientY += 12;
+        doc.text(`Phone: ${invoice.patient.phone}`, patientX, patientY);
+      }
+
+      // Items table
+      yPosition = Math.max(yPosition, patientY) + 30;
+      
+      doc.fontSize(12)
+         .font('Helvetica-Bold')
+         .text('Items', 50, yPosition);
+      
+      yPosition += 20;
+
+      // Table header
+      const tableTop = yPosition;
+      const itemHeight = 20;
+      const col1 = 50;  // Description
+      const col2 = 350; // Quantity
+      const col3 = 400; // Unit Price
+      const col4 = 480; // Amount
+
+      doc.fontSize(10)
+         .font('Helvetica-Bold')
+         .fillColor('#ffffff')
+         .rect(col1, tableTop, 500, itemHeight)
+         .fill(template.primaryColor);
+      
+      doc.text('Description', col1 + 5, tableTop + 5);
+      doc.text('Qty', col2, tableTop + 5, { width: 50, align: 'center' });
+      doc.text('Price', col3, tableTop + 5, { width: 80, align: 'right' });
+      doc.text('Amount', col4, tableTop + 5, { width: 70, align: 'right' });
+
+      yPosition = tableTop + itemHeight;
+
+      // Table rows
+      doc.fillColor('#000000');
+      invoice.items.forEach((item, index) => {
+        if (template.itemTableStyle === 'striped' && index % 2 === 0) {
+          doc.rect(col1, yPosition, 500, itemHeight)
+             .fillColor('#f8f9fa')
+             .fill()
+             .fillColor('#000000');
+        }
+
+        if (template.itemTableStyle === 'bordered') {
+          doc.rect(col1, yPosition, 500, itemHeight)
+             .strokeColor('#e2e8f0')
+             .lineWidth(0.5)
+             .stroke();
+        }
+
+        doc.fontSize(9)
+           .font('Helvetica')
+           .text(item.description, col1 + 5, yPosition + 5, { width: 290 });
+        doc.text(String(item.quantity || 1), col2, yPosition + 5, { width: 50, align: 'center' });
+        doc.text(formatCurrency(item.unitPrice), col3, yPosition + 5, { width: 80, align: 'right' });
+        doc.text(formatCurrency(item.amount), col4, yPosition + 5, { width: 70, align: 'right' });
+
+        yPosition += itemHeight;
+      });
+
+      // Totals section
+      yPosition += 20;
+      const totalsX = template.totalsPosition === 'left' ? 50 : template.totalsPosition === 'center' ? 275 : 400;
+      const totalsWidth = 150;
+
+      doc.fontSize(10)
+         .font('Helvetica');
+
+      let totalsY = yPosition;
+      doc.text('Subtotal:', totalsX, totalsY, { width: 100, align: 'right' });
+      doc.text(formatCurrency(invoice.subtotal), totalsX + 110, totalsY, { width: 40, align: 'right' });
+      totalsY += 15;
+
+      if (invoice.discount > 0) {
+        doc.fillColor('#ef4444');
+        doc.text('Discount:', totalsX, totalsY, { width: 100, align: 'right' });
+        doc.text(`-${formatCurrency(invoice.discount)}`, totalsX + 110, totalsY, { width: 40, align: 'right' });
+        doc.fillColor('#000000');
+        totalsY += 15;
+      }
+
+      if (invoice.tax > 0) {
+        doc.text(`${template.taxLabel}:`, totalsX, totalsY, { width: 100, align: 'right' });
+        doc.text(formatCurrency(invoice.tax), totalsX + 110, totalsY, { width: 40, align: 'right' });
+        totalsY += 15;
+      }
+
+      // Total line
+      totalsY += 5;
+      doc.moveTo(totalsX, totalsY)
+         .lineTo(totalsX + totalsWidth, totalsY)
+         .strokeColor(template.primaryColor)
+         .lineWidth(2)
+         .stroke();
+      totalsY += 10;
+
+      doc.fontSize(12)
+         .font('Helvetica-Bold')
+         .fillColor(template.primaryColor);
+      doc.text('Total:', totalsX, totalsY, { width: 100, align: 'right' });
+      doc.text(formatCurrency(invoice.totalAmount), totalsX + 110, totalsY, { width: 40, align: 'right' });
+      totalsY += 20;
+
+      doc.fontSize(10)
+         .font('Helvetica')
+         .fillColor('#000000');
+      doc.text('Paid:', totalsX, totalsY, { width: 100, align: 'right' });
+      doc.fillColor('#22c55e');
+      doc.text(formatCurrency(invoice.paidAmount), totalsX + 110, totalsY, { width: 40, align: 'right' });
+      totalsY += 15;
+
+      doc.fontSize(11)
+         .font('Helvetica-Bold')
+         .fillColor(invoice.dueAmount > 0 ? '#ef4444' : '#22c55e');
+      doc.text('Due:', totalsX, totalsY, { width: 100, align: 'right' });
+      doc.text(formatCurrency(invoice.dueAmount), totalsX + 110, totalsY, { width: 40, align: 'right' });
+
+      // Payment history
+      if (template.showPaymentMethods && invoice.payments && invoice.payments.length > 0) {
+        yPosition = Math.max(totalsY, yPosition) + 30;
+        
+        doc.fontSize(12)
+           .font('Helvetica-Bold')
+           .fillColor(template.primaryColor)
+           .text('Payment History', 50, yPosition);
+        
+        yPosition += 20;
+
+        invoice.payments.forEach((payment) => {
+          doc.fontSize(9)
+             .font('Helvetica')
+             .fillColor('#000000')
+             .text(`${formatDate(payment.paymentDate)} - ${formatCurrency(payment.amount)} - ${payment.paymentMode}`, 50, yPosition);
+          yPosition += 15;
+        });
+      }
+
+      // Notes
+      if (invoice.notes) {
+        yPosition += 20;
+        doc.fontSize(10)
+           .font('Helvetica-Bold')
+           .text('Notes:', 50, yPosition);
+        yPosition += 15;
+        doc.fontSize(9)
+           .font('Helvetica')
+           .text(invoice.notes, 50, yPosition, { width: 500 });
+      }
+
+      // Footer
+      const pageHeight = doc.page.height;
+      const footerY = pageHeight - 50;
+
+      if (template.footerText) {
+        doc.fontSize(8)
+           .font('Helvetica')
+           .fillColor('#64748b')
+           .text(template.footerText, 50, footerY - 30, { width: 500, align: 'center' });
+      }
+
+      if (template.showSignature) {
+        doc.moveTo(50, footerY - 10)
+           .lineTo(250, footerY - 10)
+           .strokeColor('#000000')
+           .lineWidth(0.5)
+           .stroke();
+        doc.fontSize(8)
+           .font('Helvetica')
+           .fillColor('#64748b')
+           .text(template.signatureLabel || 'Authorized Signature', 50, footerY - 5);
+      }
+
+      // Generated date
+      doc.fontSize(8)
+         .font('Helvetica')
+         .fillColor('#64748b')
+         .text(`Generated on: ${new Date().toLocaleString()}`, 50, footerY, { width: 500, align: 'center' });
+
+      // Finalize PDF
+      doc.end();
+
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // GET /api/invoices/:id - Get invoice by ID
 router.get(
   '/:id',
   authenticate,
+  checkPermission('invoices', 'read'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -247,6 +675,7 @@ router.get(
 router.post(
   '/',
   authenticate,
+  checkPermission('invoices', 'create'),
   [
     body('patientId').notEmpty().withMessage('Patient ID is required'),
     body('items').isArray({ min: 1 }).withMessage('At least one item is required'),
@@ -338,6 +767,7 @@ router.post(
 router.put(
   '/:id',
   authenticate,
+  checkPermission('invoices', 'update'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;
@@ -474,6 +904,7 @@ router.post(
 router.delete(
   '/:id',
   authenticate,
+  checkPermission('invoices', 'delete'),
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
       const { id } = req.params;

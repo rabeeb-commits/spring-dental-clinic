@@ -18,6 +18,7 @@ import dentalChartRoutes from './routes/dentalChart';
 import diseaseRoutes from './routes/diseases';
 import treatmentRoutes from './routes/treatments';
 import invoiceRoutes from './routes/invoices';
+import invoiceTemplateRoutes from './routes/invoiceTemplates';
 import paymentRoutes from './routes/payments';
 import reportRoutes from './routes/reports';
 import documentRoutes from './routes/documents';
@@ -25,6 +26,7 @@ import userRoutes from './routes/users';
 import procedureTypeRoutes from './routes/procedureTypes';
 import backupRoutes from './routes/backup';
 import logRoutes from './routes/logs';
+import settingsRoutes from './routes/settings';
 
 // Initialize Express app
 const app: Application = express();
@@ -35,14 +37,33 @@ app.use(helmet({
   contentSecurityPolicy: false, // Allow inline scripts for React in production
 }));
 
-// CORS configuration - only needed in development (separate frontend server)
+// CORS configuration
 const isProduction = process.env.NODE_ENV === 'production';
-if (!isProduction) {
-  app.use(cors({
-    origin: process.env.FRONTEND_URL || 'http://localhost:5173',
-    credentials: true,
-  }));
-}
+const allowedOrigins = [
+  process.env.FRONTEND_URL,
+  'http://localhost:5173',
+  // Add any other allowed origins
+].filter(Boolean) as string[];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // In production, only allow specified origins
+    if (isProduction) {
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    } else {
+      // In development, allow all origins
+      callback(null, true);
+    }
+  },
+  credentials: true,
+}));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -62,11 +83,13 @@ app.use('/api/diseases', diseaseRoutes);
 app.use('/api/treatments', treatmentRoutes);
 app.use('/api/procedure-types', procedureTypeRoutes);
 app.use('/api/invoices', invoiceRoutes);
+app.use('/api/invoice-templates', invoiceTemplateRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/documents', documentRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/logs', logRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req: Request, res: Response) => {
