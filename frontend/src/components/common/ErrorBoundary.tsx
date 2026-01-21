@@ -82,7 +82,7 @@ class ErrorBoundary extends Component<Props, State> {
             <Typography variant="body2" color="text.secondary" sx={{ mb: 3 }}>
               We're sorry, but something unexpected happened. Please try refreshing the page.
             </Typography>
-            {process.env.NODE_ENV === 'development' && this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <Box
                 sx={{
                   p: 2,

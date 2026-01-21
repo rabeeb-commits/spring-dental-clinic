@@ -28,7 +28,18 @@ api.interceptors.request.use(
 // Response interceptor - handle errors
 api.interceptors.response.use(
   (response: AxiosResponse) => response,
-  (error: AxiosError<{ message?: string; errors?: Array<{ msg: string }> }>) => {
+  (error: AxiosError<{ 
+    message?: string; 
+    errors?: Array<{ msg: string }>; 
+    conflict?: {
+      existingAppointment: { patientName: string; time: string };
+      suggestions: {
+        alternativeDoctors: Array<{ id: string; name: string; available: boolean }>;
+        availableTimeSlots: Array<{ startTime: string; endTime: string }>;
+        nextAvailableSlot: { startTime: string; endTime: string } | null;
+      };
+    };
+  }>) => {
     const message = error.response?.data?.message 
       || error.response?.data?.errors?.[0]?.msg 
       || 'Something went wrong';
