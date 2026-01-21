@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { invoiceTemplatesApi } from '../services/api';
 import { InvoiceTemplate } from '../types';
+import { useAuth } from './AuthContext';
 
 interface InvoiceTemplateContextType {
   template: InvoiceTemplate | null;
@@ -40,8 +41,28 @@ export const InvoiceTemplateProvider: React.FC<{ children: React.ReactNode }> = 
   const [template, setTemplate] = useState<InvoiceTemplate | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
 
   const fetchTemplate = useCallback(async () => {
+    // Don't fetch if not authenticated
+    if (!isAuthenticated) {
+      // Use cached template or default
+      const cached = localStorage.getItem('invoiceTemplate');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          setTemplate(parsed);
+        } catch (e) {
+          // Invalid cache, use default
+          setTemplate(defaultTemplate);
+        }
+      } else {
+        setTemplate(defaultTemplate);
+      }
+      setLoading(false);
+      return;
+    }
+
     try {
       setLoading(true);
       setError(null);
@@ -69,8 +90,12 @@ export const InvoiceTemplateProvider: React.FC<{ children: React.ReactNode }> = 
         setTemplate(defaultTemplate);
       }
     } catch (err: any) {
-      console.error('Failed to fetch invoice template:', err);
-      setError(err.message || 'Failed to load invoice template');
+      // Silently handle 401 errors (expected when not authenticated)
+      // Only log other errors
+      if (err.response?.status !== 401) {
+        console.error('Failed to fetch invoice template:', err);
+        setError(err.message || 'Failed to load invoice template');
+      }
       
       // Try to use cached template
       const cached = localStorage.getItem('invoiceTemplate');
@@ -88,11 +113,14 @@ export const InvoiceTemplateProvider: React.FC<{ children: React.ReactNode }> = 
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [isAuthenticated]);
 
   useEffect(() => {
-    fetchTemplate();
-  }, [fetchTemplate]);
+    // Wait for auth to finish loading before fetching
+    if (!authLoading) {
+      fetchTemplate();
+    }
+  }, [fetchTemplate, authLoading]);
 
   const refreshTemplate = useCallback(async () => {
     await fetchTemplate();
