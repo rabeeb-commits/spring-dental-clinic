@@ -274,8 +274,11 @@ router.get(
           fontFamily: 'Arial, sans-serif',
           createdAt: new Date(),
           updatedAt: new Date(),
-        } as any;
+        } as NonNullable<typeof template>;
       }
+
+      // TypeScript now knows template is not null after the if block
+      const invoiceTemplate = template;
 
       // Create PDF document
       const doc = new PDFDocument({ 
@@ -342,17 +345,17 @@ router.get(
       }
 
       // Clinic name and info
-      const headerX = template.logoPosition === 'left' && clinicLogo ? 120 : 50;
+      const headerX = invoiceTemplate.logoPosition === 'left' && clinicLogo ? 120 : 50;
       
-      if (template.showClinicName) {
+      if (invoiceTemplate.showClinicName) {
         doc.fontSize(20)
            .font('Helvetica-Bold')
-           .fillColor(template.primaryColor)
+           .fillColor(invoiceTemplate.primaryColor)
            .text(clinicName, headerX, yPosition);
         yPosition += 25;
       }
 
-      if (template.showAddress && clinicAddress) {
+      if (invoiceTemplate.showAddress && clinicAddress) {
         doc.fontSize(10)
            .font('Helvetica')
            .fillColor('#000000')
@@ -360,7 +363,7 @@ router.get(
         yPosition += 15;
       }
 
-      if (template.showContact && clinicPhone) {
+      if (invoiceTemplate.showContact && clinicPhone) {
         doc.fontSize(10)
            .font('Helvetica')
            .fillColor('#000000')
@@ -372,7 +375,7 @@ router.get(
       yPosition += 20;
       doc.fontSize(18)
          .font('Helvetica-Bold')
-         .fillColor(template.primaryColor)
+         .fillColor(invoiceTemplate.primaryColor)
          .text('INVOICE', 50, yPosition);
       
       yPosition += 25;
@@ -386,7 +389,7 @@ router.get(
          .font('Helvetica')
          .text(`Date: ${formatDate(invoice.createdAt)}`, 50, yPosition);
 
-      if (template.showDueDate && invoice.dueDate) {
+      if (invoiceTemplate.showDueDate && invoice.dueDate) {
         yPosition += 15;
         doc.text(`Due Date: ${formatDate(invoice.dueDate)}`, 50, yPosition);
       }
@@ -433,7 +436,7 @@ router.get(
          .font('Helvetica-Bold')
          .fillColor('#ffffff')
          .rect(col1, tableTop, 500, itemHeight)
-         .fill(template.primaryColor);
+         .fill(invoiceTemplate.primaryColor);
       
       doc.text('Description', col1 + 5, tableTop + 5);
       doc.text('Qty', col2, tableTop + 5, { width: 50, align: 'center' });
@@ -445,14 +448,14 @@ router.get(
       // Table rows
       doc.fillColor('#000000');
       invoice.items.forEach((item, index) => {
-        if (template.itemTableStyle === 'striped' && index % 2 === 0) {
+        if (invoiceTemplate.itemTableStyle === 'striped' && index % 2 === 0) {
           doc.rect(col1, yPosition, 500, itemHeight)
              .fillColor('#f8f9fa')
              .fill()
              .fillColor('#000000');
         }
 
-        if (template.itemTableStyle === 'bordered') {
+        if (invoiceTemplate.itemTableStyle === 'bordered') {
           doc.rect(col1, yPosition, 500, itemHeight)
              .strokeColor('#e2e8f0')
              .lineWidth(0.5)
@@ -471,7 +474,7 @@ router.get(
 
       // Totals section
       yPosition += 20;
-      const totalsX = template.totalsPosition === 'left' ? 50 : template.totalsPosition === 'center' ? 275 : 400;
+      const totalsX = invoiceTemplate.totalsPosition === 'left' ? 50 : invoiceTemplate.totalsPosition === 'center' ? 275 : 400;
       const totalsWidth = 150;
 
       doc.fontSize(10)
@@ -491,7 +494,7 @@ router.get(
       }
 
       if (invoice.tax > 0) {
-        doc.text(`${template.taxLabel}:`, totalsX, totalsY, { width: 100, align: 'right' });
+        doc.text(`${invoiceTemplate.taxLabel}:`, totalsX, totalsY, { width: 100, align: 'right' });
         doc.text(formatCurrency(invoice.tax), totalsX + 110, totalsY, { width: 40, align: 'right' });
         totalsY += 15;
       }
@@ -500,14 +503,14 @@ router.get(
       totalsY += 5;
       doc.moveTo(totalsX, totalsY)
          .lineTo(totalsX + totalsWidth, totalsY)
-         .strokeColor(template.primaryColor)
+         .strokeColor(invoiceTemplate.primaryColor)
          .lineWidth(2)
          .stroke();
       totalsY += 10;
 
       doc.fontSize(12)
          .font('Helvetica-Bold')
-         .fillColor(template.primaryColor);
+         .fillColor(invoiceTemplate.primaryColor);
       doc.text('Total:', totalsX, totalsY, { width: 100, align: 'right' });
       doc.text(formatCurrency(invoice.totalAmount), totalsX + 110, totalsY, { width: 40, align: 'right' });
       totalsY += 20;
@@ -527,12 +530,12 @@ router.get(
       doc.text(formatCurrency(invoice.dueAmount), totalsX + 110, totalsY, { width: 40, align: 'right' });
 
       // Payment history
-      if (template.showPaymentMethods && invoice.payments && invoice.payments.length > 0) {
+      if (invoiceTemplate.showPaymentMethods && invoice.payments && invoice.payments.length > 0) {
         yPosition = Math.max(totalsY, yPosition) + 30;
         
         doc.fontSize(12)
            .font('Helvetica-Bold')
-           .fillColor(template.primaryColor)
+           .fillColor(invoiceTemplate.primaryColor)
            .text('Payment History', 50, yPosition);
         
         yPosition += 20;
@@ -562,14 +565,14 @@ router.get(
       const pageHeight = doc.page.height;
       const footerY = pageHeight - 50;
 
-      if (template.footerText) {
+      if (invoiceTemplate.footerText) {
         doc.fontSize(8)
            .font('Helvetica')
            .fillColor('#64748b')
-           .text(template.footerText, 50, footerY - 30, { width: 500, align: 'center' });
+           .text(invoiceTemplate.footerText, 50, footerY - 30, { width: 500, align: 'center' });
       }
 
-      if (template.showSignature) {
+      if (invoiceTemplate.showSignature) {
         doc.moveTo(50, footerY - 10)
            .lineTo(250, footerY - 10)
            .strokeColor('#000000')
@@ -578,7 +581,7 @@ router.get(
         doc.fontSize(8)
            .font('Helvetica')
            .fillColor('#64748b')
-           .text(template.signatureLabel || 'Authorized Signature', 50, footerY - 5);
+           .text(invoiceTemplate.signatureLabel || 'Authorized Signature', 50, footerY - 5);
       }
 
       // Generated date
