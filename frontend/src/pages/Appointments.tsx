@@ -23,6 +23,8 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Tooltip,
+  Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   Add as AddIcon,
@@ -38,6 +40,7 @@ import {
   CheckCircle as CompleteIcon,
   Close as CloseIcon,
   WhatsApp as WhatsAppIcon,
+  Warning as WarningIcon,
 } from '@mui/icons-material';
 import { DatePicker, MobileTimePicker } from '@mui/x-date-pickers';
 import { useForm, Controller } from 'react-hook-form';
@@ -56,6 +59,8 @@ import PatientRegistrationModal from '../components/workflow/PatientRegistration
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuth } from '../context/AuthContext';
 import { formatTime12Hour, parseTime12Hour } from '../utils/helpers';
+import ConflictDialog from '../components/common/ConflictDialog';
+import { useDebounce } from '../hooks/useDebounce';
 
 interface AppointmentFormData {
   patientId: string;
@@ -88,17 +93,95 @@ const Appointments: React.FC = () => {
   const [selectedAppointmentDetail, setSelectedAppointmentDetail] = useState<Appointment | null>(null);
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([]);
   const [patientRegistrationModalOpen, setPatientRegistrationModalOpen] = useState(false);
+  const [conflictDialogOpen, setConflictDialogOpen] = useState(false);
+  const [conflictData, setConflictData] = useState<{
+    message: string;
+    conflict: {
+      existingAppointment: { patientName: string; time: string };
+      suggestions: {
+        alternativeDoctors: Array<{ id: string; name: string; available: boolean }>;
+        availableTimeSlots: Array<{ startTime: string; endTime: string }>;
+        nextAvailableSlot: { startTime: string; endTime: string } | null;
+      };
+    };
+  } | null>(null);
+  const [availabilityStatus, setAvailabilityStatus] = useState<{
+    checking: boolean;
+    available: boolean | null;
+    message: string | null;
+  }>({ checking: false, available: null, message: null });
 
   const { control, register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AppointmentFormData>();
   
-  // Watch startTime to validate endTime
-  const startTime = watch('startTime');
+  // Watch form fields for validation and proactive availability checking
+  const watchedDentistId = watch('dentistId');
+  const watchedAppointmentDate = watch('appointmentDate');
+  const watchedStartTime = watch('startTime');
+  const watchedEndTime = watch('endTime');
   
   // Validate that endTime is after startTime
   const validateEndTime = (endTime: Date | null): boolean | string => {
-    if (!endTime || !startTime) return true;
-    return endTime > startTime || 'End time must be after start time';
+    if (!endTime || !watchedStartTime) return true;
+    return endTime > watchedStartTime || 'End time must be after start time';
   };
+
+  // Debounce availability check to avoid excessive API calls
+  const debouncedStartTime = useDebounce(watchedStartTime, 500);
+  const debouncedEndTime = useDebounce(watchedEndTime, 500);
+
+  // Helper function to format time
+  const formatTime = (date: Date): string => {
+    return formatTime12Hour(date);
+  };
+
+  // Proactive availability checking
+  useEffect(() => {
+    const checkAvailability = async () => {
+      if (!watchedDentistId || !watchedAppointmentDate || !debouncedStartTime || !debouncedEndTime) {
+        setAvailabilityStatus({ checking: false, available: null, message: null });
+        return;
+      }
+
+      // Skip check if editing existing appointment (to avoid false positives)
+      if (editingAppointment) {
+        setAvailabilityStatus({ checking: false, available: null, message: null });
+        return;
+      }
+
+      setAvailabilityStatus({ checking: true, available: null, message: null });
+
+      try {
+        const response = await appointmentsApi.checkAvailability({
+          dentistId: watchedDentistId,
+          appointmentDate: format(watchedAppointmentDate, 'yyyy-MM-dd'),
+          startTime: formatTime(debouncedStartTime),
+          endTime: formatTime(debouncedEndTime),
+        });
+
+        if (response.data.success) {
+          if (response.data.available) {
+            setAvailabilityStatus({
+              checking: false,
+              available: true,
+              message: 'This time slot is available',
+            });
+          } else {
+            setAvailabilityStatus({
+              checking: false,
+              available: false,
+              message: 'This time slot is not available',
+            });
+          }
+        }
+      } catch (error) {
+        // Silently fail - don't show error for proactive checks
+        setAvailabilityStatus({ checking: false, available: null, message: null });
+      }
+    };
+
+    checkAvailability();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedDentistId, watchedAppointmentDate, debouncedStartTime, debouncedEndTime, editingAppointment]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -218,10 +301,6 @@ const Appointments: React.FC = () => {
     }
   };
 
-  const formatTime = (date: Date): string => {
-    return formatTime12Hour(date);
-  };
-
   const onSubmit = async (data: AppointmentFormData) => {
     if (!data.appointmentDate || !data.startTime || !data.endTime) return;
 
@@ -249,8 +328,18 @@ const Appointments: React.FC = () => {
 
       handleCloseDialog();
       fetchData();
-    } catch (error) {
-      // Error handled by interceptor
+    } catch (error: any) {
+      // Check if error has conflict data
+      if (error.response?.data?.conflict) {
+        setConflictData({
+          message: error.response.data.message || 'Time slot conflicts with an existing appointment',
+          conflict: error.response.data.conflict,
+        });
+        setConflictDialogOpen(true);
+        // Don't show toast for conflict errors - dialog handles it
+      } else {
+        // Error handled by interceptor for other errors
+      }
     } finally {
       setSubmitting(false);
     }
@@ -943,23 +1032,49 @@ const Appointments: React.FC = () => {
                     validate: validateEndTime,
                   }}
                   render={({ field }) => (
-                    <MobileTimePicker
-                      label="End Time"
-                      value={field.value}
-                      onChange={field.onChange}
-                      ampm={true}
-                      minTime={startTime || undefined}
-                      slotProps={{
-                        textField: {
-                          fullWidth: true,
-                          error: !!errors.endTime,
-                          helperText: errors.endTime?.message,
-                        },
-                      }}
-                    />
+                    <Box>
+                      <MobileTimePicker
+                        label="End Time"
+                        value={field.value}
+                        onChange={field.onChange}
+                        ampm={true}
+                        minTime={watchedStartTime || undefined}
+                        slotProps={{
+                          textField: {
+                            fullWidth: true,
+                            error: !!errors.endTime || (availabilityStatus.available === false),
+                            helperText: errors.endTime?.message || (
+                              availabilityStatus.checking
+                                ? 'Checking availability...'
+                                : availabilityStatus.available === false
+                                ? availabilityStatus.message
+                                : availabilityStatus.available === true
+                                ? availabilityStatus.message
+                                : undefined
+                            ),
+                            InputProps: {
+                              endAdornment: availabilityStatus.checking ? (
+                                <CircularProgress size={20} />
+                              ) : availabilityStatus.available === true ? (
+                                <CompleteIcon color="success" sx={{ fontSize: 20 }} />
+                              ) : availabilityStatus.available === false ? (
+                                <WarningIcon color="error" sx={{ fontSize: 20 }} />
+                              ) : undefined,
+                            },
+                          },
+                        }}
+                      />
+                    </Box>
                   )}
                 />
               </Grid>
+              {availabilityStatus.available === false && availabilityStatus.message && (
+                <Grid item xs={12}>
+                  <Alert severity="warning" sx={{ mt: 1 }}>
+                    {availabilityStatus.message}. Please select a different time or doctor.
+                  </Alert>
+                </Grid>
+              )}
               <Grid item xs={12}>
                 <TextField
                   select
@@ -1018,6 +1133,52 @@ const Appointments: React.FC = () => {
         onClose={() => setPatientRegistrationModalOpen(false)}
         onPatientRegistered={handlePatientRegistered}
       />
+
+      {/* Conflict Dialog */}
+      {conflictData && (
+        <ConflictDialog
+          open={conflictDialogOpen}
+          onClose={() => {
+            setConflictDialogOpen(false);
+            setConflictData(null);
+          }}
+          conflict={conflictData.conflict}
+          message={conflictData.message}
+          onSelectDoctor={(doctorId) => {
+            setValue('dentistId', doctorId);
+            const selectedDentist = dentists.find((d) => d.id === doctorId);
+            if (selectedDentist) {
+              // Optionally show a success message
+              toast.success(`Selected ${selectedDentist.firstName} ${selectedDentist.lastName}`);
+            }
+          }}
+          onSelectTimeSlot={(startTime, endTime) => {
+            try {
+              const startTimeDate = parseTime12Hour(startTime);
+              const endTimeDate = parseTime12Hour(endTime);
+              setValue('startTime', startTimeDate);
+              setValue('endTime', endTimeDate);
+              toast.success(`Selected time slot: ${formatTime12Hour(startTime)} - ${formatTime12Hour(endTime)}`);
+            } catch (error) {
+              toast.error('Failed to set time slot');
+            }
+          }}
+          onSelectNextAvailable={() => {
+            if (conflictData.conflict.suggestions.nextAvailableSlot) {
+              const slot = conflictData.conflict.suggestions.nextAvailableSlot;
+              try {
+                const startTimeDate = parseTime12Hour(slot.startTime);
+                const endTimeDate = parseTime12Hour(slot.endTime);
+                setValue('startTime', startTimeDate);
+                setValue('endTime', endTimeDate);
+                toast.success(`Selected next available slot: ${formatTime12Hour(slot.startTime)} - ${formatTime12Hour(slot.endTime)}`);
+              } catch (error) {
+                toast.error('Failed to set time slot');
+              }
+            }
+          }}
+        />
+      )}
     </Box>
   );
 };

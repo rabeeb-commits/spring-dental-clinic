@@ -501,7 +501,22 @@ router.get(
       const { date } = req.query;
 
       // Default to today if no date provided
-      const targetDate = date ? new Date(date as string) : new Date();
+      // Parse date string properly to avoid timezone issues
+      let targetDate: Date;
+      if (date) {
+        // If date string is in format "YYYY-MM-DD", append time to ensure local timezone
+        const dateStr = date as string;
+        if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+          // Date only format - parse as local date
+          const [year, month, day] = dateStr.split('-').map(Number);
+          targetDate = new Date(year, month - 1, day);
+        } else {
+          // Date with time - parse normally
+          targetDate = new Date(dateStr);
+        }
+      } else {
+        targetDate = new Date();
+      }
       targetDate.setHours(0, 0, 0, 0);
       
       const nextDay = new Date(targetDate);

@@ -39,6 +39,9 @@ api.interceptors.response.use(
       localStorage.removeItem('user');
       window.location.href = '/login';
       toast.error('Session expired. Please login again.');
+    } else if (error.response?.status === 400 && error.response?.data?.conflict) {
+      // Don't show toast for conflict errors - they're handled by ConflictDialog
+      // Just reject the promise so the component can handle it
     } else if (error.response?.status !== 404) {
       // Don't show toast for 404s (handled by components)
       toast.error(message);
@@ -91,6 +94,13 @@ export const appointmentsApi = {
     api.get('/appointments/calendar', { params: { startDate, endDate, dentistId } }),
   getToday: (dentistId?: string) => api.get('/appointments/today', { params: { dentistId } }),
   getById: (id: string) => api.get(`/appointments/${id}`),
+  checkAvailability: (params: {
+    dentistId: string;
+    appointmentDate: string;
+    startTime: string;
+    endTime: string;
+    excludeAppointmentId?: string;
+  }) => api.get('/appointments/check-availability', { params }),
   create: (data: Record<string, unknown>) => api.post('/appointments', data),
   update: (id: string, data: Record<string, unknown>) => api.put(`/appointments/${id}`, data),
   updateStatus: (id: string, status: string) => api.put(`/appointments/${id}/status`, { status }),

@@ -8,6 +8,173 @@ import { parsePagination, getPaginationMeta, convertTo24Hour, compareTimes } fro
 const router = Router();
 const prisma = new PrismaClient();
 
+// Helper function to get alternative doctors available at a specific time
+async function getAlternativeDoctors(
+  appointmentDate: Date,
+  startTime: string,
+  endTime: string,
+  excludeDentistId?: string
+): Promise<Array<{ id: string; name: string; available: boolean }>> {
+  // Get all active dentists
+  const allDentists = await prisma.user.findMany({
+    where: {
+      role: 'DENTIST',
+      isActive: true,
+      ...(excludeDentistId ? { id: { not: excludeDentistId } } : {}),
+    },
+    select: {
+      id: true,
+      firstName: true,
+      lastName: true,
+    },
+  });
+
+  // Check availability for each dentist
+  const availability = await Promise.all(
+    allDentists.map(async (dentist) => {
+      const conflict = await prisma.appointment.findFirst({
+        where: {
+          dentistId: dentist.id,
+          appointmentDate,
+          status: { notIn: ['CANCELLED'] },
+          OR: [
+            {
+              AND: [
+                { startTime: { lte: startTime } },
+                { endTime: { gt: startTime } },
+              ],
+            },
+            {
+              AND: [
+                { startTime: { lt: endTime } },
+                { endTime: { gte: endTime } },
+              ],
+            },
+            {
+              AND: [
+                { startTime: { gte: startTime } },
+                { endTime: { lte: endTime } },
+              ],
+            },
+          ],
+        },
+      });
+
+      return {
+        id: dentist.id,
+        name: `Dr. ${dentist.firstName} ${dentist.lastName}`,
+        available: !conflict,
+      };
+    })
+  );
+
+  return availability.filter((d) => d.available);
+}
+
+// Helper function to get available time slots for a doctor on a specific date
+async function getAvailableTimeSlots(
+  dentistId: string,
+  appointmentDate: Date,
+  requestedStartTime: string,
+  requestedEndTime: string,
+  excludeAppointmentId?: string
+): Promise<Array<{ startTime: string; endTime: string }>> {
+  // Get all appointments for this doctor on this date
+  const appointments = await prisma.appointment.findMany({
+    where: {
+      dentistId,
+      appointmentDate,
+      status: { notIn: ['CANCELLED'] },
+      ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
+    },
+    select: {
+      startTime: true,
+      endTime: true,
+    },
+    orderBy: {
+      startTime: 'asc',
+    },
+  });
+
+  // Generate time slots (assuming 30-minute slots from 9 AM to 6 PM)
+  const availableSlots: Array<{ startTime: string; endTime: string }> = [];
+  const slotDuration = 30; // minutes
+  const startHour = 9;
+  const endHour = 18;
+
+  for (let hour = startHour; hour < endHour; hour++) {
+    for (let minute = 0; minute < 60; minute += slotDuration) {
+      const slotStart = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+      const slotEndMinute = minute + slotDuration;
+      const slotEndHour = slotEndMinute >= 60 ? hour + 1 : hour;
+      const slotEndMin = slotEndMinute >= 60 ? slotEndMinute - 60 : slotEndMinute;
+      const slotEnd = `${slotEndHour.toString().padStart(2, '0')}:${slotEndMin.toString().padStart(2, '0')}`;
+
+      if (slotEndHour >= endHour) break;
+
+      // Check if this slot conflicts with any existing appointment
+      const hasConflict = appointments.some((apt) => {
+        return (
+          (compareTimes(apt.startTime, slotStart) <= 0 && compareTimes(apt.endTime, slotStart) > 0) ||
+          (compareTimes(apt.startTime, slotEnd) < 0 && compareTimes(apt.endTime, slotEnd) >= 0) ||
+          (compareTimes(apt.startTime, slotStart) >= 0 && compareTimes(apt.endTime, slotEnd) <= 0)
+        );
+      });
+
+      if (!hasConflict) {
+        // Calculate duration of requested slot
+        const [reqStartH, reqStartM] = requestedStartTime.split(':').map(Number);
+        const [reqEndH, reqEndM] = requestedEndTime.split(':').map(Number);
+        const reqDuration = (reqEndH * 60 + reqEndM) - (reqStartH * 60 + reqStartM);
+
+        // Only suggest slots that can accommodate the requested duration
+        const [slotStartH, slotStartM] = slotStart.split(':').map(Number);
+        const [slotEndH, slotEndM] = slotEnd.split(':').map(Number);
+        const slotDurationMinutes = (slotEndH * 60 + slotEndM) - (slotStartH * 60 + slotStartM);
+
+        if (slotDurationMinutes >= reqDuration) {
+          availableSlots.push({ startTime: slotStart, endTime: slotEnd });
+        }
+      }
+    }
+  }
+
+  return availableSlots.slice(0, 5); // Return top 5 available slots
+}
+
+// Helper function to get next available time slot
+async function getNextAvailableSlot(
+  dentistId: string,
+  appointmentDate: Date,
+  requestedStartTime: string,
+  requestedEndTime: string,
+  excludeAppointmentId?: string
+): Promise<{ startTime: string; endTime: string } | null> {
+  const availableSlots = await getAvailableTimeSlots(
+    dentistId,
+    appointmentDate,
+    requestedStartTime,
+    requestedEndTime,
+    excludeAppointmentId
+  );
+
+  if (availableSlots.length > 0) {
+    // Find the first slot that starts after the requested time
+    const [reqStartH, reqStartM] = requestedStartTime.split(':').map(Number);
+    const reqStartMinutes = reqStartH * 60 + reqStartM;
+
+    const nextSlot = availableSlots.find((slot) => {
+      const [slotH, slotM] = slot.startTime.split(':').map(Number);
+      const slotMinutes = slotH * 60 + slotM;
+      return slotMinutes > reqStartMinutes;
+    });
+
+    return nextSlot || availableSlots[0];
+  }
+
+  return null;
+}
+
 // GET /api/appointments - Get all appointments
 router.get(
   '/',
@@ -243,6 +410,145 @@ router.get(
   }
 );
 
+// GET /api/appointments/check-availability - Check if a time slot is available
+router.get(
+  '/check-availability',
+  authenticate,
+  checkPermission('appointments', 'read'),
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { dentistId, appointmentDate, startTime: startTimeInput, endTime: endTimeInput, excludeAppointmentId } = req.query;
+
+      if (!dentistId || !appointmentDate || !startTimeInput || !endTimeInput) {
+        res.status(400).json({
+          success: false,
+          message: 'dentistId, appointmentDate, startTime, and endTime are required',
+        });
+        return;
+      }
+
+      // Convert times to 24-hour format
+      let startTime: string;
+      let endTime: string;
+      
+      try {
+        startTime = convertTo24Hour(startTimeInput as string);
+        endTime = convertTo24Hour(endTimeInput as string);
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          message: error instanceof Error ? error.message : 'Invalid time format',
+        });
+        return;
+      }
+
+      // Validate that end time is after start time
+      if (compareTimes(endTime, startTime) <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'End time must be after start time',
+        });
+        return;
+      }
+
+      const appointmentDateObj = new Date(appointmentDate as string);
+      appointmentDateObj.setHours(0, 0, 0, 0);
+
+      // Check for conflicts
+      const conflictingAppointment = await prisma.appointment.findFirst({
+        where: {
+          dentistId: dentistId as string,
+          appointmentDate: appointmentDateObj,
+          status: { notIn: ['CANCELLED'] },
+          ...(excludeAppointmentId ? { id: { not: excludeAppointmentId as string } } : {}),
+          OR: [
+            {
+              AND: [
+                { startTime: { lte: startTime } },
+                { endTime: { gt: startTime } },
+              ],
+            },
+            {
+              AND: [
+                { startTime: { lt: endTime } },
+                { endTime: { gte: endTime } },
+              ],
+            },
+            {
+              AND: [
+                { startTime: { gte: startTime } },
+                { endTime: { lte: endTime } },
+              ],
+            },
+          ],
+        },
+        include: {
+          patient: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+          dentist: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+      });
+
+      if (conflictingAppointment) {
+        // Get suggestions for alternatives
+        const [alternativeDoctors, availableTimeSlots, nextAvailableSlot] = await Promise.all([
+          getAlternativeDoctors(appointmentDateObj, startTime, endTime, dentistId as string),
+          getAvailableTimeSlots(
+            dentistId as string,
+            appointmentDateObj,
+            startTime,
+            endTime,
+            excludeAppointmentId as string | undefined
+          ),
+          getNextAvailableSlot(
+            dentistId as string,
+            appointmentDateObj,
+            startTime,
+            endTime,
+            excludeAppointmentId as string | undefined
+          ),
+        ]);
+
+        const patientName = conflictingAppointment.patient
+          ? `${conflictingAppointment.patient.firstName} ${conflictingAppointment.patient.lastName}`
+          : 'another patient';
+
+        res.json({
+          success: true,
+          available: false,
+          conflict: {
+            existingAppointment: {
+              patientName,
+              time: `${conflictingAppointment.startTime} - ${conflictingAppointment.endTime}`,
+            },
+          },
+          suggestions: {
+            alternativeDoctors,
+            availableTimeSlots,
+            nextAvailableSlot,
+          },
+        });
+      } else {
+        res.json({
+          success: true,
+          available: true,
+        });
+      }
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // POST /api/appointments - Create new appointment
 router.post(
   '/',
@@ -319,10 +625,11 @@ router.post(
       }
 
       // Check for conflicts
+      const appointmentDateObj = new Date(appointmentDate);
       const existingAppointment = await prisma.appointment.findFirst({
         where: {
           dentistId,
-          appointmentDate: new Date(appointmentDate),
+          appointmentDate: appointmentDateObj,
           status: { notIn: ['CANCELLED'] },
           OR: [
             {
@@ -345,12 +652,51 @@ router.post(
             },
           ],
         },
+        include: {
+          patient: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+          dentist: {
+            select: {
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
       });
 
       if (existingAppointment) {
+        // Get suggestions for alternatives
+        const [alternativeDoctors, availableTimeSlots, nextAvailableSlot] = await Promise.all([
+          getAlternativeDoctors(appointmentDateObj, startTime, endTime, dentistId),
+          getAvailableTimeSlots(dentistId, appointmentDateObj, startTime, endTime),
+          getNextAvailableSlot(dentistId, appointmentDateObj, startTime, endTime),
+        ]);
+
+        const dentistName = existingAppointment.dentist
+          ? `Dr. ${existingAppointment.dentist.firstName} ${existingAppointment.dentist.lastName}`
+          : 'the selected doctor';
+        const patientName = existingAppointment.patient
+          ? `${existingAppointment.patient.firstName} ${existingAppointment.patient.lastName}`
+          : 'another patient';
+
         res.status(400).json({
           success: false,
-          message: 'Time slot conflicts with an existing appointment',
+          message: `This time slot is not available for ${dentistName}. ${dentistName} has an appointment with ${patientName} at ${existingAppointment.startTime} - ${existingAppointment.endTime}.`,
+          conflict: {
+            existingAppointment: {
+              patientName,
+              time: `${existingAppointment.startTime} - ${existingAppointment.endTime}`,
+            },
+            suggestions: {
+              alternativeDoctors,
+              availableTimeSlots,
+              nextAvailableSlot,
+            },
+          },
         });
         return;
       }
@@ -438,6 +784,26 @@ router.put(
       }
 
       const { id } = req.params;
+      
+      // Get existing appointment first to check if it exists and get current values
+      const existingAppointment = await prisma.appointment.findUnique({
+        where: { id },
+        select: {
+          dentistId: true,
+          appointmentDate: true,
+          startTime: true,
+          endTime: true,
+        },
+      });
+
+      if (!existingAppointment) {
+        res.status(404).json({
+          success: false,
+          message: 'Appointment not found',
+        });
+        return;
+      }
+
       const updateData: any = { ...req.body };
 
       if (updateData.appointmentDate) {
@@ -469,37 +835,99 @@ router.put(
         }
       }
 
-      // If both times are provided, validate endTime > startTime
-      if (updateData.startTime && updateData.endTime) {
-        if (compareTimes(updateData.endTime, updateData.startTime) <= 0) {
-          res.status(400).json({
-            success: false,
-            message: 'End time must be after start time',
-          });
-          return;
-        }
-      } else if (updateData.startTime || updateData.endTime) {
-        // If only one time is provided, get the other from existing appointment
-        const existingAppointment = await prisma.appointment.findUnique({
-          where: { id },
-          select: { startTime: true, endTime: true },
+      // Merge existing data with updates to get final values for validation
+      const finalDentistId = updateData.dentistId || existingAppointment.dentistId;
+      const finalDate = updateData.appointmentDate || existingAppointment.appointmentDate;
+      const finalStartTime = updateData.startTime || existingAppointment.startTime;
+      const finalEndTime = updateData.endTime || existingAppointment.endTime;
+
+      // Validate that end time is after start time
+      if (compareTimes(finalEndTime, finalStartTime) <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'End time must be after start time',
+        });
+        return;
+      }
+
+      // Check for conflicts if date, time, or dentist is being changed
+      if (updateData.dentistId || updateData.appointmentDate || updateData.startTime || updateData.endTime) {
+        const appointmentDateForQuery = finalDate instanceof Date 
+          ? finalDate 
+          : new Date(finalDate);
+
+        const conflictingAppointment = await prisma.appointment.findFirst({
+          where: {
+            id: { not: id }, // Exclude current appointment
+            dentistId: finalDentistId,
+            appointmentDate: appointmentDateForQuery,
+            status: { notIn: ['CANCELLED'] },
+            OR: [
+              {
+                AND: [
+                  { startTime: { lte: finalStartTime } },
+                  { endTime: { gt: finalStartTime } },
+                ],
+              },
+              {
+                AND: [
+                  { startTime: { lt: finalEndTime } },
+                  { endTime: { gte: finalEndTime } },
+                ],
+              },
+              {
+                AND: [
+                  { startTime: { gte: finalStartTime } },
+                  { endTime: { lte: finalEndTime } },
+                ],
+              },
+            ],
+          },
+          include: {
+            patient: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+            dentist: {
+              select: {
+                firstName: true,
+                lastName: true,
+              },
+            },
+          },
         });
 
-        if (!existingAppointment) {
-          res.status(404).json({
-            success: false,
-            message: 'Appointment not found',
-          });
-          return;
-        }
+        if (conflictingAppointment) {
+          // Get suggestions for alternatives
+          const [alternativeDoctors, availableTimeSlots, nextAvailableSlot] = await Promise.all([
+            getAlternativeDoctors(appointmentDateForQuery, finalStartTime, finalEndTime, finalDentistId),
+            getAvailableTimeSlots(finalDentistId, appointmentDateForQuery, finalStartTime, finalEndTime, id),
+            getNextAvailableSlot(finalDentistId, appointmentDateForQuery, finalStartTime, finalEndTime, id),
+          ]);
 
-        const startTime = updateData.startTime || existingAppointment.startTime;
-        const endTime = updateData.endTime || existingAppointment.endTime;
+          const dentistName = conflictingAppointment.dentist
+            ? `Dr. ${conflictingAppointment.dentist.firstName} ${conflictingAppointment.dentist.lastName}`
+            : 'the selected doctor';
+          const patientName = conflictingAppointment.patient
+            ? `${conflictingAppointment.patient.firstName} ${conflictingAppointment.patient.lastName}`
+            : 'another patient';
 
-        if (compareTimes(endTime, startTime) <= 0) {
           res.status(400).json({
             success: false,
-            message: 'End time must be after start time',
+            message: `This time slot is not available for ${dentistName}. ${dentistName} has an appointment with ${patientName} at ${conflictingAppointment.startTime} - ${conflictingAppointment.endTime}.`,
+            conflict: {
+              existingAppointment: {
+                patientName,
+                time: `${conflictingAppointment.startTime} - ${conflictingAppointment.endTime}`,
+              },
+              suggestions: {
+                alternativeDoctors,
+                availableTimeSlots,
+                nextAvailableSlot,
+              },
+            },
           });
           return;
         }
