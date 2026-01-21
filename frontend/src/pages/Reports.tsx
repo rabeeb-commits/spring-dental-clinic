@@ -14,10 +14,18 @@ import {
   Button,
   Menu,
   CircularProgress,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Chip,
 } from '@mui/material';
 import {
   Download as DownloadIcon,
   FileDownload as ExportIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import {
   BarChart,
@@ -38,6 +46,7 @@ import { DatePicker } from '@mui/x-date-pickers';
 import { format, subMonths, startOfYear } from 'date-fns';
 import toast from 'react-hot-toast';
 import { reportsApi, reportsExportApi } from '../services/api';
+import { formatTime12Hour } from '../utils/helpers';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -62,6 +71,9 @@ const Reports: React.FC = () => {
   const [treatmentData, setTreatmentData] = useState<any>(null);
   const [patientData, setPatientData] = useState<any>(null);
   const [appointmentData, setAppointmentData] = useState<any>(null);
+  const [doctorPatientCountData, setDoctorPatientCountData] = useState<any>(null);
+  const [doctorPatientCountDate, setDoctorPatientCountDate] = useState<Date | null>(new Date());
+  const [loadingDoctorPatientCount, setLoadingDoctorPatientCount] = useState(false);
   const [exportMenuAnchor, setExportMenuAnchor] = useState<null | HTMLElement>(null);
   const [exporting, setExporting] = useState(false);
 
@@ -94,6 +106,30 @@ const Reports: React.FC = () => {
 
     fetchReports();
   }, [startDate, endDate]);
+
+  // Fetch doctor patient count when tab is active or date changes
+  useEffect(() => {
+    const fetchDoctorPatientCount = async () => {
+      if (activeTab === 4 && doctorPatientCountDate) {
+        setLoadingDoctorPatientCount(true);
+        try {
+          const response = await reportsApi.getDoctorPatientCount(
+            format(doctorPatientCountDate, 'yyyy-MM-dd')
+          );
+          if (response.data.success) {
+            setDoctorPatientCountData(response.data.data);
+          }
+        } catch (error) {
+          console.error('Failed to fetch doctor patient count:', error);
+          toast.error('Failed to load doctor patient count. Please try again.');
+        } finally {
+          setLoadingDoctorPatientCount(false);
+        }
+      }
+    };
+
+    fetchDoctorPatientCount();
+  }, [activeTab, doctorPatientCountDate]);
 
   const formatCurrency = (value: number) => {
     return new Intl.NumberFormat('en-IN', {
@@ -287,6 +323,7 @@ const Reports: React.FC = () => {
           <Tab label="Treatments" />
           <Tab label="Patients" />
           <Tab label="Appointments" />
+          <Tab label="Doctor Patient Count" />
         </Tabs>
 
         <Box sx={{ p: 3 }}>
@@ -514,10 +551,116 @@ const Reports: React.FC = () => {
               </Grid>
             )}
           </TabPanel>
+
+          {/* Doctor Patient Count Tab */}
+          <TabPanel value={activeTab} index={4}>
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="subtitle2" gutterBottom>
+                Select Date for Patient Count Report
+              </Typography>
+              <DatePicker
+                label="Date"
+                value={doctorPatientCountDate}
+                onChange={setDoctorPatientCountDate}
+                slotProps={{ textField: { size: 'small', sx: { maxWidth: 250 } } }}
+              />
+            </Box>
+
+            {loadingDoctorPatientCount ? (
+              <Skeleton variant="rounded" height={400} />
+            ) : doctorPatientCountData ? (
+              <Box>
+                <Typography variant="h6" gutterBottom>
+                  Patient Count by Doctor - {format(new Date(doctorPatientCountData.date), 'PPP')}
+                </Typography>
+                
+                {doctorPatientCountData.doctors.length === 0 ? (
+                  <Box sx={{ textAlign: 'center', py: 6 }}>
+                    <Typography color="text.secondary">
+                      No appointments scheduled for this date
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Grid container spacing={3}>
+                    {doctorPatientCountData.doctors.map((doctor: any) => (
+                      <Grid item xs={12} md={6} key={doctor.doctorId}>
+                        <Card>
+                          <CardContent>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+                              <Typography variant="h6" fontWeight={600}>
+                                {doctor.doctorName}
+                              </Typography>
+                              <Chip
+                                label={`${doctor.patientCount} Patient${doctor.patientCount !== 1 ? 's' : ''}`}
+                                color="primary"
+                                sx={{ fontWeight: 600 }}
+                              />
+                            </Box>
+
+                            {doctor.appointments.length === 0 ? (
+                              <Typography variant="body2" color="text.secondary">
+                                No appointments scheduled
+                              </Typography>
+                            ) : (
+                              <TableContainer>
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Time</TableCell>
+                                      <TableCell>Patient</TableCell>
+                                      <TableCell>Phone</TableCell>
+                                      <TableCell>Status</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {doctor.appointments.map((apt: any) => (
+                                      <TableRow key={apt.appointmentId}>
+                                        <TableCell>
+                                          {formatTime12Hour(apt.startTime)} - {formatTime12Hour(apt.endTime)}
+                                        </TableCell>
+                                        <TableCell>{apt.patientName}</TableCell>
+                                        <TableCell>{apt.phone || 'N/A'}</TableCell>
+                                        <TableCell>
+                                          <Chip
+                                            label={apt.status}
+                                            size="small"
+                                            sx={{
+                                              bgcolor: `${getStatusColor(apt.status)}20`,
+                                              color: getStatusColor(apt.status),
+                                            }}
+                                          />
+                                        </TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </TableContainer>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    ))}
+                  </Grid>
+                )}
+              </Box>
+            ) : null}
+          </TabPanel>
         </Box>
       </Paper>
     </Box>
   );
+};
+
+// Helper function to get status color
+const getStatusColor = (status: string): string => {
+  const colors: Record<string, string> = {
+    CONFIRMED: '#3b82f6',
+    RESCHEDULED: '#8b5cf6',
+    CANCELLED: '#ef4444',
+    COMPLETED: '#22c55e',
+    NO_SHOW: '#f59e0b',
+  };
+  return colors[status] || '#64748b';
 };
 
 export default Reports;

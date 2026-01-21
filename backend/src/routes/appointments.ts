@@ -3,7 +3,7 @@ import { body, validationResult } from 'express-validator';
 import { PrismaClient } from '@prisma/client';
 import { authenticate } from '../middleware/auth';
 import { checkPermission } from '../middleware/permissions';
-import { parsePagination, getPaginationMeta } from '../utils/helpers';
+import { parsePagination, getPaginationMeta, convertTo24Hour, compareTimes } from '../utils/helpers';
 
 const router = Router();
 const prisma = new PrismaClient();
@@ -252,8 +252,13 @@ router.post(
     body('patientId').notEmpty().withMessage('Patient ID is required'),
     body('dentistId').notEmpty().withMessage('Dentist ID is required'),
     body('appointmentDate').isISO8601().withMessage('Valid appointment date is required'),
-    body('startTime').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid start time is required (HH:MM)'),
-    body('endTime').matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid end time is required (HH:MM)'),
+    // Accept both 12-hour (h:mm AM/PM) and 24-hour (HH:MM) formats
+    body('startTime')
+      .matches(/^(\d{1,2}:\d{2}\s*(AM|PM)|([01]?[0-9]|2[0-3]):[0-5][0-9])$/i)
+      .withMessage('Valid start time is required (h:mm AM/PM or HH:MM)'),
+    body('endTime')
+      .matches(/^(\d{1,2}:\d{2}\s*(AM|PM)|([01]?[0-9]|2[0-3]):[0-5][0-9])$/i)
+      .withMessage('Valid end time is required (h:mm AM/PM or HH:MM)'),
     body('type').optional().isIn(['CONSULTATION', 'FOLLOW_UP', 'EMERGENCY', 'PROCEDURE']).withMessage('Invalid appointment type'),
   ],
   async (req: Request, res: Response, next: NextFunction): Promise<void> => {
@@ -268,13 +273,37 @@ router.post(
         patientId,
         dentistId,
         appointmentDate,
-        startTime,
-        endTime,
+        startTime: startTimeInput,
+        endTime: endTimeInput,
         type,
         reason,
         notes,
         toothNumbers,
       } = req.body;
+
+      // Convert times to 24-hour format for storage and comparison
+      let startTime: string;
+      let endTime: string;
+      
+      try {
+        startTime = convertTo24Hour(startTimeInput);
+        endTime = convertTo24Hour(endTimeInput);
+      } catch (error) {
+        res.status(400).json({
+          success: false,
+          message: error instanceof Error ? error.message : 'Invalid time format',
+        });
+        return;
+      }
+
+      // Validate that end time is after start time
+      if (compareTimes(endTime, startTime) <= 0) {
+        res.status(400).json({
+          success: false,
+          message: 'End time must be after start time',
+        });
+        return;
+      }
 
       // Validate tooth numbers if provided
       if (toothNumbers && Array.isArray(toothNumbers)) {
@@ -388,8 +417,15 @@ router.put(
   checkPermission('appointments', 'update'),
   [
     body('appointmentDate').optional().isISO8601().withMessage('Valid appointment date is required'),
-    body('startTime').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid start time is required'),
-    body('endTime').optional().matches(/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/).withMessage('Valid end time is required'),
+    // Accept both 12-hour (h:mm AM/PM) and 24-hour (HH:MM) formats
+    body('startTime')
+      .optional()
+      .matches(/^(\d{1,2}:\d{2}\s*(AM|PM)|([01]?[0-9]|2[0-3]):[0-5][0-9])$/i)
+      .withMessage('Valid start time is required (h:mm AM/PM or HH:MM)'),
+    body('endTime')
+      .optional()
+      .matches(/^(\d{1,2}:\d{2}\s*(AM|PM)|([01]?[0-9]|2[0-3]):[0-5][0-9])$/i)
+      .withMessage('Valid end time is required (h:mm AM/PM or HH:MM)'),
     body('status').optional().isIn(['CONFIRMED', 'RESCHEDULED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']).withMessage('Invalid status'),
     body('type').optional().isIn(['CONSULTATION', 'FOLLOW_UP', 'EMERGENCY', 'PROCEDURE']).withMessage('Invalid appointment type'),
   ],
@@ -402,10 +438,71 @@ router.put(
       }
 
       const { id } = req.params;
-      const updateData = { ...req.body };
+      const updateData: any = { ...req.body };
 
       if (updateData.appointmentDate) {
         updateData.appointmentDate = new Date(updateData.appointmentDate);
+      }
+
+      // Convert times to 24-hour format if provided
+      if (updateData.startTime) {
+        try {
+          updateData.startTime = convertTo24Hour(updateData.startTime);
+        } catch (error) {
+          res.status(400).json({
+            success: false,
+            message: error instanceof Error ? error.message : 'Invalid start time format',
+          });
+          return;
+        }
+      }
+
+      if (updateData.endTime) {
+        try {
+          updateData.endTime = convertTo24Hour(updateData.endTime);
+        } catch (error) {
+          res.status(400).json({
+            success: false,
+            message: error instanceof Error ? error.message : 'Invalid end time format',
+          });
+          return;
+        }
+      }
+
+      // If both times are provided, validate endTime > startTime
+      if (updateData.startTime && updateData.endTime) {
+        if (compareTimes(updateData.endTime, updateData.startTime) <= 0) {
+          res.status(400).json({
+            success: false,
+            message: 'End time must be after start time',
+          });
+          return;
+        }
+      } else if (updateData.startTime || updateData.endTime) {
+        // If only one time is provided, get the other from existing appointment
+        const existingAppointment = await prisma.appointment.findUnique({
+          where: { id },
+          select: { startTime: true, endTime: true },
+        });
+
+        if (!existingAppointment) {
+          res.status(404).json({
+            success: false,
+            message: 'Appointment not found',
+          });
+          return;
+        }
+
+        const startTime = updateData.startTime || existingAppointment.startTime;
+        const endTime = updateData.endTime || existingAppointment.endTime;
+
+        if (compareTimes(endTime, startTime) <= 0) {
+          res.status(400).json({
+            success: false,
+            message: 'End time must be after start time',
+          });
+          return;
+        }
       }
 
       // Validate tooth numbers if provided

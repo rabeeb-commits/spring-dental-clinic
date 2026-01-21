@@ -48,7 +48,7 @@ import { patientsApi, patientExportApi, invoicesApi } from '../services/api';
 import { Patient } from '../types';
 import DentalChart from '../components/dental-chart/DentalChart';
 import { format } from 'date-fns';
-import { calculateAge } from '../utils/helpers';
+import { calculateAge, formatTime12Hour } from '../utils/helpers';
 import { openWhatsApp, generateFollowUpMessage, generatePaymentReminderMessage } from '../utils/whatsapp';
 
 interface TabPanelProps {
@@ -574,7 +574,7 @@ const PatientDetail: React.FC = () => {
                   >
                     <ListItemText
                       primary={format(new Date(apt.appointmentDate), 'PPP')}
-                      secondary={`${apt.startTime} - ${apt.endTime} | ${apt.type}`}
+                      secondary={`${formatTime12Hour(apt.startTime)} - ${formatTime12Hour(apt.endTime)} | ${apt.type}`}
                     />
                     <Chip
                       label={apt.status}

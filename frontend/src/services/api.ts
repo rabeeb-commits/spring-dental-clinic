@@ -182,6 +182,8 @@ export const reportsApi = {
   getAppointments: (params?: Record<string, string>) => api.get('/reports/appointments', { params }),
   getDentistPerformance: (params?: Record<string, string>) =>
     api.get('/reports/dentist-performance', { params }),
+  getDoctorPatientCount: (date?: string) =>
+    api.get('/reports/doctor-patient-count', { params: date ? { date } : {} }),
 };
 
 // Documents API

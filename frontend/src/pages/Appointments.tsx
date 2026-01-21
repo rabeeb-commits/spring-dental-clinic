@@ -55,6 +55,7 @@ import { sendAppointmentReminder } from '../utils/whatsapp';
 import PatientRegistrationModal from '../components/workflow/PatientRegistrationModal';
 import { usePermissions } from '../hooks/usePermissions';
 import { useAuth } from '../context/AuthContext';
+import { formatTime12Hour, parseTime12Hour } from '../utils/helpers';
 
 interface AppointmentFormData {
   patientId: string;
@@ -88,7 +89,16 @@ const Appointments: React.FC = () => {
   const [selectedTeeth, setSelectedTeeth] = useState<number[]>([]);
   const [patientRegistrationModalOpen, setPatientRegistrationModalOpen] = useState(false);
 
-  const { control, register, handleSubmit, reset, setValue, formState: { errors } } = useForm<AppointmentFormData>();
+  const { control, register, handleSubmit, reset, setValue, watch, formState: { errors } } = useForm<AppointmentFormData>();
+  
+  // Watch startTime to validate endTime
+  const startTime = watch('startTime');
+  
+  // Validate that endTime is after startTime
+  const validateEndTime = (endTime: Date | null): boolean | string => {
+    if (!endTime || !startTime) return true;
+    return endTime > startTime || 'End time must be after start time';
+  };
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -197,14 +207,19 @@ const Appointments: React.FC = () => {
   };
 
   const parseTimeString = (timeStr: string): Date => {
-    const [hours, minutes] = timeStr.split(':').map(Number);
-    const date = new Date();
-    date.setHours(hours, minutes, 0, 0);
-    return date;
+    try {
+      return parseTime12Hour(timeStr);
+    } catch {
+      // Fallback for backward compatibility with 24-hour format
+      const [hours, minutes] = timeStr.split(':').map(Number);
+      const date = new Date();
+      date.setHours(hours, minutes, 0, 0);
+      return date;
+    }
   };
 
   const formatTime = (date: Date): string => {
-    return format(date, 'HH:mm');
+    return formatTime12Hour(date);
   };
 
   const onSubmit = async (data: AppointmentFormData) => {
@@ -449,7 +464,7 @@ const Appointments: React.FC = () => {
                             }}
                           >
                             <Typography variant="caption" fontWeight={600} display="block">
-                              {apt.startTime}
+                              {formatTime12Hour(apt.startTime)}
                             </Typography>
                             <Typography variant="caption" noWrap>
                               {apt.patient?.firstName} {apt.patient?.lastName}
@@ -505,7 +520,7 @@ const Appointments: React.FC = () => {
                   }}
                   role="button"
                   tabIndex={0}
-                  aria-label={`Appointment with ${apt.patient?.firstName} ${apt.patient?.lastName} at ${apt.startTime}`}
+                  aria-label={`Appointment with ${apt.patient?.firstName} ${apt.patient?.lastName} at ${formatTime12Hour(apt.startTime)}`}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' || e.key === ' ') {
                       e.preventDefault();
@@ -520,9 +535,9 @@ const Appointments: React.FC = () => {
                   <ListItemText
                     primary={`${apt.patient?.firstName} ${apt.patient?.lastName}`}
                     secondary={
-                      <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
+                        <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
                         <Typography variant="caption">
-                          {apt.startTime} - {apt.endTime}
+                          {formatTime12Hour(apt.startTime)} - {formatTime12Hour(apt.endTime)}
                         </Typography>
                         <Typography variant="caption">
                           {apt.type.replace('_', ' ')}
@@ -666,7 +681,7 @@ const Appointments: React.FC = () => {
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Time</Typography>
-                  <Typography>{selectedAppointmentDetail.startTime} - {selectedAppointmentDetail.endTime}</Typography>
+                  <Typography>{formatTime12Hour(selectedAppointmentDetail.startTime)} - {formatTime12Hour(selectedAppointmentDetail.endTime)}</Typography>
                 </Grid>
                 <Grid item xs={6}>
                   <Typography variant="caption" color="text.secondary">Type</Typography>
@@ -923,13 +938,17 @@ const Appointments: React.FC = () => {
                 <Controller
                   name="endTime"
                   control={control}
-                  rules={{ required: 'End time is required' }}
+                  rules={{ 
+                    required: 'End time is required',
+                    validate: validateEndTime,
+                  }}
                   render={({ field }) => (
                     <MobileTimePicker
                       label="End Time"
                       value={field.value}
                       onChange={field.onChange}
                       ampm={true}
+                      minTime={startTime || undefined}
                       slotProps={{
                         textField: {
                           fullWidth: true,

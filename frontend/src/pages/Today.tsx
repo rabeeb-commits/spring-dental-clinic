@@ -62,6 +62,7 @@ import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import { appointmentsApi, usersApi } from '../services/api';
 import { Appointment, User, AppointmentStatus } from '../types';
+import { formatTime12Hour } from '../utils/helpers';
 
 // Status columns configuration
 const COLUMNS = [
@@ -150,7 +151,7 @@ const DraggableCard: React.FC<DraggableCardProps> = ({ appointment, onOpenMenu }
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
               <TimeIcon sx={{ fontSize: 14, color: '#64748b' }} />
               <Typography variant="caption" color="text.secondary">
-                {appointment.startTime} - {appointment.endTime}
+                {formatTime12Hour(appointment.startTime)} - {formatTime12Hour(appointment.endTime)}
               </Typography>
             </Box>
             

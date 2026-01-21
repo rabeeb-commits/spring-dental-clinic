@@ -141,5 +141,88 @@ export const sanitizeSearchQuery = (query: string): string => {
   return query.trim().replace(/[%_]/g, '\\$&');
 };
 
+/**
+ * Convert 12-hour format time to 24-hour format
+ * Examples: "1:00 PM" -> "13:00", "12:00 AM" -> "00:00", "12:00 PM" -> "12:00"
+ */
+export const convertTo24Hour = (time12Hour: string): string => {
+  // Remove extra spaces and convert to uppercase
+  const cleaned = time12Hour.trim().toUpperCase();
+  
+  // Check if already in 24-hour format (HH:MM)
+  const is24Hour = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/.test(cleaned);
+  if (is24Hour) {
+    return cleaned;
+  }
+  
+  // Parse 12-hour format (h:mm AM/PM or hh:mm AM/PM)
+  const match = cleaned.match(/^(\d{1,2}):(\d{2})\s*(AM|PM)$/);
+  if (!match) {
+    throw new Error(`Invalid time format: ${time12Hour}. Expected format: "h:mm AM/PM" or "HH:MM"`);
+  }
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const period = match[3];
+  
+  if (period === 'AM') {
+    if (hours === 12) {
+      hours = 0; // 12:00 AM = 00:00
+    }
+  } else if (period === 'PM') {
+    if (hours !== 12) {
+      hours += 12; // 1:00 PM = 13:00, but 12:00 PM = 12:00
+    }
+  }
+  
+  return `${hours.toString().padStart(2, '0')}:${minutes}`;
+};
+
+/**
+ * Convert 24-hour format time to 12-hour format
+ * Examples: "13:00" -> "1:00 PM", "00:00" -> "12:00 AM", "12:00" -> "12:00 PM"
+ */
+export const convertTo12Hour = (time24Hour: string): string => {
+  // Check if already in 12-hour format
+  if (/^\d{1,2}:\d{2}\s*(AM|PM)$/i.test(time24Hour.trim())) {
+    return time24Hour.trim();
+  }
+  
+  // Parse 24-hour format
+  const match = time24Hour.match(/^([01]?[0-9]|2[0-3]):([0-5][0-9])$/);
+  if (!match) {
+    throw new Error(`Invalid time format: ${time24Hour}. Expected format: "HH:MM"`);
+  }
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = match[2];
+  const period = hours >= 12 ? 'PM' : 'AM';
+  
+  if (hours === 0) {
+    hours = 12; // 00:00 = 12:00 AM
+  } else if (hours > 12) {
+    hours -= 12; // 13:00 = 1:00 PM
+  }
+  // hours === 12 stays as 12 (12:00 PM)
+  
+  return `${hours}:${minutes} ${period}`;
+};
+
+/**
+ * Compare two time strings (24-hour format)
+ * Returns: -1 if time1 < time2, 0 if equal, 1 if time1 > time2
+ */
+export const compareTimes = (time1: string, time2: string): number => {
+  const [h1, m1] = time1.split(':').map(Number);
+  const [h2, m2] = time2.split(':').map(Number);
+  
+  const totalMinutes1 = h1 * 60 + m1;
+  const totalMinutes2 = h2 * 60 + m2;
+  
+  if (totalMinutes1 < totalMinutes2) return -1;
+  if (totalMinutes1 > totalMinutes2) return 1;
+  return 0;
+};
+
 
 

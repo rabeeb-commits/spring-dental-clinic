@@ -492,6 +492,102 @@ router.get(
   }
 );
 
+// GET /api/reports/doctor-patient-count - Doctor patient count report for leave planning
+router.get(
+  '/doctor-patient-count',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+    try {
+      const { date } = req.query;
+
+      // Default to today if no date provided
+      const targetDate = date ? new Date(date as string) : new Date();
+      targetDate.setHours(0, 0, 0, 0);
+      
+      const nextDay = new Date(targetDate);
+      nextDay.setDate(nextDay.getDate() + 1);
+
+      // Get all active dentists
+      const dentists = await prisma.user.findMany({
+        where: { role: 'DENTIST', isActive: true },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+        },
+        orderBy: [
+          { firstName: 'asc' },
+          { lastName: 'asc' },
+        ],
+      });
+
+      // Get appointments for the target date, excluding cancelled
+      const appointments = await prisma.appointment.findMany({
+        where: {
+          appointmentDate: {
+            gte: targetDate,
+            lt: nextDay,
+          },
+          status: { not: 'CANCELLED' },
+        },
+        include: {
+          patient: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+              phone: true,
+            },
+          },
+          dentist: {
+            select: {
+              id: true,
+              firstName: true,
+              lastName: true,
+            },
+          },
+        },
+        orderBy: [
+          { startTime: 'asc' },
+        ],
+      });
+
+      // Group appointments by dentist
+      const doctorData = dentists.map((dentist) => {
+        const dentistAppointments = appointments.filter(
+          (apt) => apt.dentistId === dentist.id
+        );
+
+        return {
+          doctorId: dentist.id,
+          doctorName: `Dr. ${dentist.firstName} ${dentist.lastName}`,
+          patientCount: dentistAppointments.length,
+          appointments: dentistAppointments.map((apt) => ({
+            appointmentId: apt.id,
+            patientId: apt.patient.id,
+            patientName: `${apt.patient.firstName} ${apt.patient.lastName}`,
+            phone: apt.patient.phone,
+            startTime: apt.startTime,
+            endTime: apt.endTime,
+            status: apt.status,
+            type: apt.type,
+          })),
+        };
+      });
+
+      res.json({
+        success: true,
+        data: {
+          date: targetDate.toISOString().split('T')[0],
+          doctors: doctorData,
+        },
+      });
+    } catch (error) {
+      next(error);
+    }
+  }
+);
+
 // GET /api/reports/export - Export reports to Excel
 router.get(
   '/export',
