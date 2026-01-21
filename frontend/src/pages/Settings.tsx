@@ -581,7 +581,7 @@ const Settings: React.FC = () => {
     if (!selectedUserForPermissions) return;
     setSubmitting(true);
     try {
-      await usersApi.updatePermissions(selectedUserForPermissions.id, userPermissions);
+      await usersApi.updatePermissions(selectedUserForPermissions.id, userPermissions as Record<string, unknown>[]);
       toast.success('Permissions updated successfully');
       setPermissionDialogOpen(false);
       setSelectedUserForPermissions(null);
@@ -706,9 +706,9 @@ const Settings: React.FC = () => {
     setSavingTemplate(true);
     try {
       if (invoiceTemplate.id) {
-        await invoiceTemplatesApi.update(invoiceTemplate.id, invoiceTemplate);
+        await invoiceTemplatesApi.update(invoiceTemplate.id, invoiceTemplate as Record<string, unknown>);
       } else {
-        const response = await invoiceTemplatesApi.create(invoiceTemplate);
+        const response = await invoiceTemplatesApi.create(invoiceTemplate as Record<string, unknown>);
         if (response.data.success) {
           setInvoiceTemplate(response.data.data);
         }
@@ -1823,7 +1823,6 @@ const Settings: React.FC = () => {
                                 <TableCell>
                                   <StatusBadge
                                     status={userItem.isActive ? 'active' : 'inactive'}
-                                    label={userItem.isActive ? 'Active' : 'Inactive'}
                                   />
                                 </TableCell>
                                 <TableCell>

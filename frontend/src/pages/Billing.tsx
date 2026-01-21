@@ -65,7 +65,7 @@ import { useInvoiceTemplate } from '../context/InvoiceTemplateContext';
 import { generateInvoiceHTML } from '../components/invoice/InvoiceGenerator';
 import UPIQRCode from '../components/common/UPIQRCode';
 import ConfirmDialog from '../components/common/ConfirmDialog';
-import { sendInvoiceMessage, sendPaymentUpdateMessage } from '../utils/whatsapp';
+import { sendInvoiceMessage, sendPaymentUpdateMessage, openWhatsAppWithPDFMessage } from '../utils/whatsapp';
 
 interface InvoiceFormData {
   patientId: string;
@@ -246,6 +246,10 @@ const Billing: React.FC = () => {
       const response = await invoicesApi.getById(invoice.id);
       if (response.data.success) {
         const invoiceData = response.data.data;
+        if (!template) {
+          toast.error('Invoice template not loaded');
+          return;
+        }
         const html = generateInvoiceHTML({
           invoice: invoiceData,
           template,
@@ -796,7 +800,7 @@ const Billing: React.FC = () => {
                                 </IconButton>
                               </Tooltip>
                             )}
-                            {user?.role === 'ADMIN' && permissions.invoices.canDelete && invoice.status !== 'CANCELLED' && (
+                            {user?.role === 'ADMIN' && permissions.invoices.canDelete && (
                               <Tooltip title="Cancel Invoice">
                                 <IconButton
                                   size="small"

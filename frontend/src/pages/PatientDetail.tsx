@@ -23,6 +23,12 @@ import {
   MenuItem,
   ListItemIcon,
   ListItemText as MenuListItemText,
+  Tooltip,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TextField,
 } from '@mui/material';
 import {
   ArrowBack as ArrowBackIcon,
@@ -35,6 +41,7 @@ import {
   Description as DocumentIcon,
   PictureAsPdf as PdfIcon,
   WhatsApp as WhatsAppIcon,
+  Close as CloseIcon,
 } from '@mui/icons-material';
 import toast from 'react-hot-toast';
 import { patientsApi, patientExportApi, invoicesApi } from '../services/api';
@@ -175,7 +182,7 @@ const PatientDetail: React.FC = () => {
         );
 
         if (totalOutstanding === 0) {
-          toast.info('No outstanding payments for this patient');
+          toast('No outstanding payments for this patient');
           handleWhatsAppMenuClose();
           return;
         }
