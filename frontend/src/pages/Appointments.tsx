@@ -216,24 +216,7 @@ const Appointments: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  // Handle query parameters for pre-filling patient
-  useEffect(() => {
-    const action = searchParams.get('action');
-    const patientId = searchParams.get('patientId');
-    
-    if (action === 'new' && patientId) {
-      const patient = patients.find(p => p.id === patientId);
-      if (patient) {
-        setSelectedPatient(patient);
-        handleOpenDialog(undefined, new Date());
-        setValue('patientId', patientId);
-        // Clear URL params
-        navigate('/appointments', { replace: true });
-      }
-    }
-  }, [searchParams, patients, navigate, setValue]);
-
-  const handleOpenDialog = (appointment?: Appointment, date?: Date) => {
+  const handleOpenDialog = useCallback((appointment?: Appointment, date?: Date) => {
     if (appointment) {
       setEditingAppointment(appointment);
       const patient = patients.find(p => p.id === appointment.patientId);
@@ -267,7 +250,47 @@ const Appointments: React.FC = () => {
       setSelectedTeeth([]);
     }
     setDialogOpen(true);
-  };
+  }, [patients, dentists, reset]);
+
+  // Handle query parameters for pre-filling patient
+  useEffect(() => {
+    const action = searchParams.get('action');
+    const patientId = searchParams.get('patientId');
+    
+    if (action === 'new' && patientId && !loading) {
+      const handlePatientSelection = async () => {
+        // First, try to find patient in the loaded list
+        let patient = patients.find(p => p.id === patientId);
+        
+        // If not found, fetch the patient by ID
+        if (!patient) {
+          try {
+            const response = await patientsApi.getById(patientId);
+            if (response.data.success && response.data.data) {
+              patient = response.data.data;
+              // Add to patients list for future reference
+              setPatients(prev => [...prev, patient!]);
+            }
+          } catch (error) {
+            console.error('Failed to fetch patient:', error);
+            toast.error('Failed to load patient information');
+            return;
+          }
+        }
+        
+        // If patient is found, pre-select it
+        if (patient) {
+          setSelectedPatient(patient);
+          handleOpenDialog(undefined, new Date());
+          setValue('patientId', patientId);
+          // Clear URL params
+          navigate('/appointments', { replace: true });
+        }
+      };
+      
+      handlePatientSelection();
+    }
+  }, [searchParams, patients, loading, navigate, setValue, handleOpenDialog]);
 
   const handleCloseDialog = () => {
     setDialogOpen(false);
